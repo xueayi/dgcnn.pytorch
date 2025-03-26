@@ -1,8 +1,2 @@
 .DS_Store
 */.DS_Store
-.idea/
-__pycache__/
-data/
-nn_models/
-outputs/
-/docs
