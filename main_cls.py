@@ -28,7 +28,6 @@ from torch.utils.data import DataLoader
 from util import cal_loss, IOStream
 from torch.utils.tensorboard import SummaryWriter
 import sklearn.metrics as metrics
-from thop import profile, clever_format
 
 def _init_():
     if not os.path.exists('outputs'):
@@ -66,22 +65,17 @@ def train(args, io):
 
     # 统计模型参数量和FLOPs
     try:
-        # 简单方式计算参数量
-        total_params = sum(p.numel() for p in model.parameters())
-        io.cprint(f"模型参数量: {clever_format([total_params], '%.3f')[0]}")
-        writer.add_scalar('Model/Params', total_params, 0)
-        
-        # 尝试计算FLOPs
-        dummy_input = torch.randn(1, 3, args.num_points).to(device)
-        flops, _ = profile(model, inputs=(dummy_input,))
-        io.cprint(f"模型计算量: {clever_format([flops], '%.3f')[0]}")
-        writer.add_scalar('Model/FLOPs', flops, 0)
-    except Exception as e:
-        io.cprint(f"计算模型复杂度时出错: {str(e)}")
-        # 至少计算参数量
+        from torchstat import stat
+        stat_model = model.module if isinstance(model, nn.DataParallel) else model
+        stat(stat_model, (3, args.num_points))
         params = sum(p.numel() for p in model.parameters())
-        writer.add_scalar('Model/Params', params, 0)
         io.cprint(f"模型参数量: {clever_format([params], '%.3f')[0]}")
+    except ImportError:
+        io.cprint("未安装torchstat，跳过复杂度统计")
+        params = sum(p.numel() for p in model.parameters())
+        io.cprint(f"模型参数量: {clever_format([params], '%.3f')[0]}")
+    except Exception as e:
+        io.cprint(f"统计模型复杂度时出错: {str(e)}")
 
     model = nn.DataParallel(model)
     print("Let's use", torch.cuda.device_count(), "GPUs!")
