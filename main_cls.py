@@ -28,7 +28,7 @@ from torch.utils.data import DataLoader
 from util import cal_loss, IOStream
 from torch.utils.tensorboard import SummaryWriter
 import sklearn.metrics as metrics
-from thop import profile
+# from thop import profile
 
 
 def _init_():
@@ -65,13 +65,13 @@ def train(args, io):
 
     print(str(model))
 
-    # 统计模型参数量和FLOPs
-    dummy_input = torch.randn(1, 3, args.num_points).to(device)
-    flops, params = profile(model, inputs=(dummy_input,), verbose=False)
-    print('\nParams: %.2fM, FLOPs: %.2fG' % (params/1e6, flops/1e9))
-    io.cprint('Params: %.2fM, FLOPs: %.2fG' % (params/1e6, flops/1e9))
-    writer.add_scalar('Model/Params', params/1e6, 0)
-    writer.add_scalar('Model/FLOPs', flops/1e9, 0)
+    # # 统计模型参数量和FLOPs
+    # dummy_input = torch.randn(1, 3, args.num_points).to(device)
+    # flops, params = profile(model, inputs=(dummy_input,), verbose=False)
+    # print('\nParams: %.2fM, FLOPs: %.2fG' % (params/1e6, flops/1e9))
+    # io.cprint('Params: %.2fM, FLOPs: %.2fG' % (params/1e6, flops/1e9))
+    # writer.add_scalar('Model/Params', params/1e6, 0)
+    # writer.add_scalar('Model/FLOPs', flops/1e9, 0)
 
     model = nn.DataParallel(model)
     print("Let's use", torch.cuda.device_count(), "GPUs!")
