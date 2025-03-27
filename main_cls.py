@@ -123,8 +123,8 @@ def train(args, io):
                 for param_group in opt.param_groups:
                     param_group['lr'] = 1e-5
 
-        train_true = np.concatenate(train_true)
-        train_pred = np.concatenate(train_pred)
+        train_true = np.concatenate(train_true).astype(np.int64)
+        train_pred = np.concatenate(train_pred).astype(np.int64)
         # 记录训练指标
         writer.add_scalar('Train/Loss', train_loss/count, epoch)
         writer.add_scalar('Train/Acc', metrics.accuracy_score(train_true, train_pred), epoch)
@@ -163,8 +163,8 @@ def train(args, io):
             test_loss += loss.item() * batch_size
             test_true.append(label.cpu().numpy())
             test_pred.append(preds.detach().cpu().numpy())
-        test_true = np.concatenate(test_true)
-        test_pred = np.concatenate(test_pred)
+        test_true = np.concatenate(test_true).astype(np.int64)
+        test_pred = np.concatenate(test_pred).astype(np.int64)
         test_acc = metrics.accuracy_score(test_true, test_pred)
         avg_per_class_acc = metrics.balanced_accuracy_score(test_true, test_pred)
         # 记录测试指标
