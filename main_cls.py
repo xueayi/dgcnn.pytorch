@@ -29,7 +29,16 @@ from util import cal_loss, IOStream
 from torch.utils.tensorboard import SummaryWriter
 import sklearn.metrics as metrics
 from thop import profile, clever_format
+from thop.vision.basic_hooks import count_parameters
+from thop import register_hooks
 
+def count_bn(m, x, y):
+    x = x[0]
+    nelements = x.numel()
+    # subtract, divide, gamma, beta
+    total_ops = 2 * nelements
+
+    m.total_ops += torch.DoubleTensor([int(total_ops)])
 
 def _init_():
     if not os.path.exists('outputs'):
@@ -65,9 +74,14 @@ def train(args, io):
 
     print(str(model))
 
+    # 注册BatchNorm2d的计算规则
+    custom_ops = {
+        nn.BatchNorm2d: count_bn
+    }
+
     # 统计模型参数量和FLOPs
     dummy_input = torch.randn(1, 3, args.num_points).to(device)
-    macs, params = profile(model, inputs=(dummy_input,))
+    macs, params = profile(model, inputs=(dummy_input,), custom_ops=custom_ops)
     # 先记录原始数值到TensorBoard
     writer.add_scalar('Model/Params', params, 0)
     writer.add_scalar('Model/MACs', macs, 0)
@@ -209,13 +223,14 @@ def test(args, io):
     else:
         raise Exception("Not implemented")
 
+    # 注册BatchNorm2d的计算规则
+    custom_ops = {
+        nn.BatchNorm2d: count_bn
+    }
+
     # 统计模型参数量和FLOPs
     dummy_input = torch.randn(1, 3, args.num_points).to(device)
-    macs, params = profile(model, inputs=(dummy_input,))
-    # 先记录原始数值到TensorBoard
-    writer.add_scalar('Model/Params', params, 0)
-    writer.add_scalar('Model/MACs', macs, 0)
-    # 然后格式化用于显示
+    macs, params = profile(model, inputs=(dummy_input,), custom_ops=custom_ops)
     macs, params = clever_format([macs, params], "%.3f")
     io.cprint(f"模型参数量: {params}, 计算量: {macs}")
 
