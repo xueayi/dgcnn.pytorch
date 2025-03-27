@@ -125,9 +125,12 @@ def train(args, io):
 
         train_true = np.concatenate(train_true).astype(np.int64)
         train_pred = np.concatenate(train_pred).astype(np.int64)
+        train_acc = metrics.accuracy_score(train_true, train_pred)
+        train_balanced_acc = metrics.balanced_accuracy_score(train_true, train_pred)
         # 记录训练指标
         writer.add_scalar('Train/Loss', train_loss/count, epoch)
-        writer.add_scalar('Train/Acc', metrics.accuracy_score(train_true, train_pred), epoch)
+        writer.add_scalar('Train/Acc', train_acc, epoch)
+        writer.add_scalar('Train/Balanced_Acc', train_balanced_acc / count, epoch)
         writer.add_scalar('Train/LR', opt.param_groups[0]['lr'], epoch)
         
         # 记录GPU内存使用情况
@@ -137,8 +140,8 @@ def train(args, io):
         outstr = '[Epoch %d] Train Loss: %.4f | Acc: %.4f | Balanced Acc: %.4f | LR: %.5f | GPU Mem: %.2fGB' % (
             epoch, 
             train_loss/count,
-            metrics.accuracy_score(train_true.astype(np.int64), train_pred.astype(np.int64)),
-            metrics.balanced_accuracy_score(train_true.astype(np.int64), train_pred.astype(np.int64)),
+            train_acc,
+            train_balanced_acc,
             opt.param_groups[0]['lr'],
             torch.cuda.max_memory_allocated()/1024**3 if args.cuda else 0
         )
@@ -170,11 +173,14 @@ def train(args, io):
         # 记录测试指标
         writer.add_scalar('Test/Loss', test_loss/count, epoch)
         writer.add_scalar('Test/Acc', test_acc, epoch)
+        writer.add_scalar('Test/Balanced_Acc', avg_per_class_acc, epoch)
+        writer.add_scalar('Best_Acc', best_test_acc, epoch)
         
-        outstr = '[Epoch %d] Test Loss: %.4f | Acc: %.4f | Best Acc: %.4f' % (
+        outstr = '[Epoch %d] Test Loss: %.4f | Test Acc: %.4f | Test Balanced Acc: %.4f | Best Acc: %.4f' % (
             epoch,
             test_loss/count,
             test_acc,
+            avg_per_class_acc,
             best_test_acc
         )
         io.cprint(outstr)
@@ -188,7 +194,7 @@ def train(args, io):
         
         # 重置GPU内存统计
         if args.cuda:
-            torch.cuda.reset_max_memory_allocated()
+            torch.cuda.reset_peak_memory_stats()
         if test_acc >= best_test_acc:
             best_test_acc = test_acc
             torch.save(model.state_dict(), 'outputs/%s/models/model.t7' % args.exp_name)
