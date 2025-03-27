@@ -26,7 +26,9 @@ from model import PointNet, DGCNN_cls
 import numpy as np
 from torch.utils.data import DataLoader
 from util import cal_loss, IOStream
+from torch.utils.tensorboard import SummaryWriter
 import sklearn.metrics as metrics
+from thop import profile
 
 
 def _init_():
@@ -36,12 +38,16 @@ def _init_():
         os.makedirs('outputs/'+args.exp_name)
     if not os.path.exists('outputs/'+args.exp_name+'/'+'models'):
         os.makedirs('outputs/'+args.exp_name+'/'+'models')
+    if not os.path.exists('outputs/'+args.exp_name+'/tensorboard'):
+        os.makedirs('outputs/'+args.exp_name+'/tensorboard')
     os.system('cp main_cls.py outputs'+'/'+args.exp_name+'/'+'main_cls.py.backup')
     os.system('cp model.py outputs' + '/' + args.exp_name + '/' + 'model.py.backup')
     os.system('cp util.py outputs' + '/' + args.exp_name + '/' + 'util.py.backup')
     os.system('cp data.py outputs' + '/' + args.exp_name + '/' + 'data.py.backup')
 
 def train(args, io):
+    writer = SummaryWriter(log_dir='outputs/'+args.exp_name+'/tensorboard')
+    
     train_loader = DataLoader(ModelNet40(partition='train', num_points=args.num_points), num_workers=8,
                               batch_size=args.batch_size, shuffle=True, drop_last=True)
     test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points), num_workers=8,
@@ -58,6 +64,14 @@ def train(args, io):
         raise Exception("Not implemented")
 
     print(str(model))
+
+    # 统计模型参数量和FLOPs
+    dummy_input = torch.randn(1, 3, args.num_points).to(device)
+    flops, params = profile(model, inputs=(dummy_input,), verbose=False)
+    print('\nParams: %.2fM, FLOPs: %.2fG' % (params/1e6, flops/1e9))
+    io.cprint('Params: %.2fM, FLOPs: %.2fG' % (params/1e6, flops/1e9))
+    writer.add_scalar('Model/Params', params/1e6, 0)
+    writer.add_scalar('Model/FLOPs', flops/1e9, 0)
 
     model = nn.DataParallel(model)
     print("Let's use", torch.cuda.device_count(), "GPUs!")
@@ -111,12 +125,23 @@ def train(args, io):
 
         train_true = np.concatenate(train_true)
         train_pred = np.concatenate(train_pred)
-        outstr = 'Train %d, loss: %.6f, train acc: %.6f, train avg acc: %.6f' % (epoch,
-                                                                                 train_loss*1.0/count,
-                                                                                 metrics.accuracy_score(
-                                                                                     train_true, train_pred),
-                                                                                 metrics.balanced_accuracy_score(
-                                                                                     train_true, train_pred))
+        # 记录训练指标
+        writer.add_scalar('Train/Loss', train_loss/count, epoch)
+        writer.add_scalar('Train/Acc', metrics.accuracy_score(train_true, train_pred), epoch)
+        writer.add_scalar('Train/LR', opt.param_groups[0]['lr'], epoch)
+        
+        # 记录GPU内存使用情况
+        if args.cuda:
+            writer.add_scalar('System/GPU_Mem', torch.cuda.max_memory_allocated()/1024**3, epoch)
+        
+        outstr = '[Epoch %d] Train Loss: %.4f | Acc: %.4f | Balanced Acc: %.4f | LR: %.5f | GPU Mem: %.2fGB' % (
+            epoch, 
+            train_loss/count,
+            metrics.accuracy_score(train_true, train_pred),
+            metrics.balanced_accuracy_score(train_true, train_pred),
+            opt.param_groups[0]['lr'],
+            torch.cuda.max_memory_allocated()/1024**3 if args.cuda else 0
+        )
         io.cprint(outstr)
 
         ####################
@@ -142,11 +167,25 @@ def train(args, io):
         test_pred = np.concatenate(test_pred)
         test_acc = metrics.accuracy_score(test_true, test_pred)
         avg_per_class_acc = metrics.balanced_accuracy_score(test_true, test_pred)
-        outstr = 'Test %d, loss: %.6f, test acc: %.6f, test avg acc: %.6f' % (epoch,
-                                                                              test_loss*1.0/count,
-                                                                              test_acc,
-                                                                              avg_per_class_acc)
+        # 记录测试指标
+        writer.add_scalar('Test/Loss', test_loss/count, epoch)
+        writer.add_scalar('Test/Acc', test_acc, epoch)
+        
+        outstr = '[Epoch %d] Test Loss: %.4f | Acc: %.4f | Best Acc: %.4f' % (
+            epoch,
+            test_loss/count,
+            test_acc,
+            best_test_acc
+        )
         io.cprint(outstr)
+        
+        # 保存模型参数直方图
+        for name, param in model.named_parameters():
+            writer.add_histogram(name, param, epoch)
+        
+        # 重置GPU内存统计
+        if args.cuda:
+            torch.cuda.reset_max_memory_allocated()
         if test_acc >= best_test_acc:
             best_test_acc = test_acc
             torch.save(model.state_dict(), 'outputs/%s/models/model.t7' % args.exp_name)
@@ -248,6 +287,10 @@ if __name__ == "__main__":
         io.cprint('Using CPU')
 
     if not args.eval:
-        train(args, io)
+        try:
+            train(args, io)
+        finally:
+            if 'writer' in locals():
+                writer.close()
     else:
         test(args, io)
