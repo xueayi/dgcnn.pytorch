@@ -1,0 +1,26 @@
+Namespace(batch_size=32, dataset='modelnet40', dropout=0.5, emb_dims=1024, epochs=250, eval=False, exp_name='exp_0327', k=20, lr=0.001, model='dgcnn', model_path='', momentum=0.9, no_cuda=False, num_points=1024, scheduler='cos', seed=1, test_batch_size=16, use_sgd=True)
+Using GPU : 0 from 1 devices
+Params: 1.81M, FLOPs: 2.58G
+Namespace(batch_size=32, dataset='modelnet40', dropout=0.5, emb_dims=1024, epochs=250, eval=False, exp_name='exp_0327', k=20, lr=0.001, model='dgcnn', model_path='', momentum=0.9, no_cuda=False, num_points=1024, scheduler='cos', seed=1, test_batch_size=16, use_sgd=True)
+Using GPU : 0 from 1 devices
+Params: 1.81M, FLOPs: 2.58G
+Namespace(batch_size=32, dataset='modelnet40', dropout=0.5, emb_dims=1024, epochs=250, eval=False, exp_name='exp_0327', k=20, lr=0.001, model='dgcnn', model_path='', momentum=0.9, no_cuda=False, num_points=1024, scheduler='cos', seed=1, test_batch_size=16, use_sgd=True)
+Using GPU : 0 from 1 devices
+[Epoch 0] Train Loss: 2.2344 | Acc: 0.4166 | Balanced Acc: 0.2567 | LR: 0.10000 | GPU Mem: 5.18GB
+[Epoch 0] Test Loss: 1.3428 | Acc: 0.6098 | Best Acc: 0.0000
+Namespace(batch_size=32, dataset='modelnet40', dropout=0.5, emb_dims=1024, epochs=250, eval=False, exp_name='exp_0327', k=20, lr=0.001, model='dgcnn', model_path='', momentum=0.9, no_cuda=False, num_points=1024, scheduler='cos', seed=1, test_batch_size=16, use_sgd=True)
+Using GPU : 0 from 1 devices
+[Epoch 0] Train Loss: 2.2344 | Acc: 0.4166 | Balanced Acc: 0.2567 | LR: 0.10000 | GPU Mem: 5.18GB
+[Epoch 0] Test Loss: 1.3428 | Acc: 0.6098 | Best Acc: 0.0000
+Namespace(batch_size=32, dataset='modelnet40', dropout=0.5, emb_dims=1024, epochs=250, eval=False, exp_name='exp_0327', k=20, lr=0.001, model='dgcnn', model_path='', momentum=0.9, no_cuda=False, num_points=1024, scheduler='cos', seed=1, test_batch_size=16, use_sgd=True)
+Using GPU : 0 from 1 devices
+[Epoch 0] Train Loss: 2.2344 | Acc: 0.4166 | Balanced Acc: 0.2567 | LR: 0.10000 | GPU Mem: 5.18GB
+[Epoch 0] Test Loss: 1.3428 | Acc: 0.6098 | Best Acc: 0.0000
+Namespace(batch_size=32, dataset='modelnet40', dropout=0.5, emb_dims=1024, epochs=250, eval=False, exp_name='exp_0327', k=20, lr=0.001, model='dgcnn', model_path='', momentum=0.9, no_cuda=False, num_points=1024, scheduler='cos', seed=1, test_batch_size=16, use_sgd=True)
+Using GPU : 0 from 1 devices
+[Epoch 0] Train Loss: 2.2344 | Acc: 0.4166 | Balanced Acc: 0.2567 | LR: 0.10000 | GPU Mem: 5.18GB
+[Epoch 0] Test Loss: 1.3428 | Acc: 0.6098 | Best Acc: 0.0000
+Namespace(batch_size=32, dataset='modelnet40', dropout=0.5, emb_dims=1024, epochs=250, eval=False, exp_name='exp_0327', k=20, lr=0.001, model='dgcnn', model_path='', momentum=0.9, no_cuda=False, num_points=1024, scheduler='cos', seed=1, test_batch_size=16, use_sgd=True)
+Using GPU : 0 from 1 devices
+[Epoch 0] Train Loss: 2.2344 | Acc: 0.4166 | Balanced Acc: 0.2567 | LR: 0.10000 | GPU Mem: 5.18GB
+[Epoch 0] Test Loss: 1.3428 | Acc: 0.6098 | Best Acc: 0.0000
