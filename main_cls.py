@@ -30,6 +30,7 @@ from torch.utils.tensorboard import SummaryWriter
 import sklearn.metrics as metrics
 from thop import profile
 from thop import clever_format
+import copy
 
 def _init_():
     if not os.path.exists('outputs'):
@@ -65,9 +66,11 @@ def train(args, io):
 
     print(str(model))
 
-    # 统计模型参数量和FLOPs
+    # 使用副本统计模型参数量和FLOPs
+    model_copy = copy.deepcopy(model)
     dummy_input = torch.randn(1, 3, args.num_points).to(device)
-    macs, params = profile(model, inputs=(dummy_input,))
+    macs, params = profile(model_copy, inputs=(dummy_input,))
+    del model_copy  # 统计完成后立即释放副本
     writer.add_scalar('Model/Params', params, 0)
     writer.add_scalar('Model/MACs', macs, 0)
     macs, params = clever_format([macs, params], "%.3f")
@@ -208,8 +211,10 @@ def test(args, io):
         raise Exception("Not implemented")
 
     # 统计模型参数量和FLOPs
+    model_copy = copy.deepcopy(model)
     dummy_input = torch.randn(1, 3, args.num_points).to(device)
-    macs, params = profile(model, inputs=(dummy_input,))
+    macs, params = profile(model_copy, inputs=(dummy_input,))
+    del model_copy  # 统计完成后立即释放副本
     macs, params = clever_format([macs, params], "%.3f")
     io.cprint(f"模型参数量: {params}, 计算量: {macs}")
 
