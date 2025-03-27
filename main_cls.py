@@ -179,12 +179,12 @@ def train(args, io):
         )
         io.cprint(outstr)
         
-        # 保存模型参数直方图
-        for name, param in model.named_parameters():
-            # 确保参数为有效浮点数据
-            param_data = param.data.float()
-            if torch.isfinite(param_data).all():
-                writer.add_histogram(name, param_data, epoch)
+        # # 保存模型参数直方图
+        # for name, param in model.named_parameters():
+        #     # 确保参数为有效浮点数据
+        #     param_data = param.data.float()
+        #     if torch.isfinite(param_data).all():
+        #         writer.add_histogram(name, param_data, epoch)
         
         # 重置GPU内存统计
         if args.cuda:
