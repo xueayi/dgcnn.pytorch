@@ -137,8 +137,8 @@ def train(args, io):
         outstr = '[Epoch %d] Train Loss: %.4f | Acc: %.4f | Balanced Acc: %.4f | LR: %.5f | GPU Mem: %.2fGB' % (
             epoch, 
             train_loss/count,
-            metrics.accuracy_score(train_true, train_pred),
-            metrics.balanced_accuracy_score(train_true, train_pred),
+            metrics.accuracy_score(train_true.astype(np.int64), train_pred.astype(np.int64)),
+            metrics.balanced_accuracy_score(train_true.astype(np.int64), train_pred.astype(np.int64)),
             opt.param_groups[0]['lr'],
             torch.cuda.max_memory_allocated()/1024**3 if args.cuda else 0
         )
@@ -223,8 +223,8 @@ def test(args, io):
         test_pred.append(preds.detach().cpu().numpy())
     test_true = np.concatenate(test_true)
     test_pred = np.concatenate(test_pred)
-    test_acc = metrics.accuracy_score(test_true, test_pred)
-    avg_per_class_acc = metrics.balanced_accuracy_score(test_true, test_pred)
+    test_acc = metrics.accuracy_score(test_true.astype(np.int64), test_pred.astype(np.int64))
+    avg_per_class_acc = metrics.balanced_accuracy_score(test_true.astype(np.int64), test_pred.astype(np.int64))
     outstr = 'Test :: test acc: %.6f, test avg acc: %.6f'%(test_acc, avg_per_class_acc)
     io.cprint(outstr)
 
