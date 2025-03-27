@@ -68,10 +68,12 @@ def train(args, io):
     # 统计模型参数量和FLOPs
     dummy_input = torch.randn(1, 3, args.num_points).to(device)
     macs, params = profile(model, inputs=(dummy_input,))
+    # 先记录原始数值到TensorBoard
+    writer.add_scalar('Model/Params', params, 0)
+    writer.add_scalar('Model/MACs', macs, 0)
+    # 然后格式化用于显示
     macs, params = clever_format([macs, params], "%.3f")
     io.cprint(f"模型参数量: {params}, 计算量: {macs}")
-    writer.add_scalar('Model/Params', float(params.split()[0]), 0)
-    writer.add_scalar('Model/MACs', float(macs.split()[0]), 0)
 
     model = nn.DataParallel(model)
     print("Let's use", torch.cuda.device_count(), "GPUs!")
@@ -210,6 +212,10 @@ def test(args, io):
     # 统计模型参数量和FLOPs
     dummy_input = torch.randn(1, 3, args.num_points).to(device)
     macs, params = profile(model, inputs=(dummy_input,))
+    # 先记录原始数值到TensorBoard
+    writer.add_scalar('Model/Params', params, 0)
+    writer.add_scalar('Model/MACs', macs, 0)
+    # 然后格式化用于显示
     macs, params = clever_format([macs, params], "%.3f")
     io.cprint(f"模型参数量: {params}, 计算量: {macs}")
 
