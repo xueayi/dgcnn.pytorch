@@ -165,8 +165,8 @@ def train(args, io):
             test_pred.append(preds.detach().cpu().numpy())
         test_true = np.concatenate(test_true)
         test_pred = np.concatenate(test_pred)
-        test_acc = metrics.accuracy_score(test_true, test_pred)
-        avg_per_class_acc = metrics.balanced_accuracy_score(test_true, test_pred)
+        test_acc = metrics.accuracy_score(test_true.astype(np.int64), test_pred.astype(np.int64))
+        avg_per_class_acc = metrics.balanced_accuracy_score(test_true.astype(np.int64), test_pred.astype(np.int64))
         # 记录测试指标
         writer.add_scalar('Test/Loss', test_loss/count, epoch)
         writer.add_scalar('Test/Acc', test_acc, epoch)
