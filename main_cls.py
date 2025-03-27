@@ -289,7 +289,6 @@ if __name__ == "__main__":
     if not args.eval:
         try:
             train(args, io)
-            io.cprint('训练完成！')
         finally:
             if 'writer' in locals():
                 writer.close()
