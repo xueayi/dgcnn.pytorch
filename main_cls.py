@@ -181,7 +181,7 @@ def train(args, io):
         
         # 保存模型参数直方图
         for name, param in model.named_parameters():
-            writer.add_histogram(name, param, epoch)
+            writer.add_histogram(name, param.data.float(), epoch)
         
         # 重置GPU内存统计
         if args.cuda:
