@@ -28,7 +28,6 @@ from torch.utils.data import DataLoader
 from util import cal_loss, IOStream
 from torch.utils.tensorboard import SummaryWriter
 import sklearn.metrics as metrics
-# from thop import profile
 
 
 def _init_():
@@ -64,14 +63,6 @@ def train(args, io):
         raise Exception("Not implemented")
 
     print(str(model))
-
-    # # 统计模型参数量和FLOPs
-    # dummy_input = torch.randn(1, 3, args.num_points).to(device)
-    # flops, params = profile(model, inputs=(dummy_input,), verbose=False)
-    # print('\nParams: %.2fM, FLOPs: %.2fG' % (params/1e6, flops/1e9))
-    # io.cprint('Params: %.2fM, FLOPs: %.2fG' % (params/1e6, flops/1e9))
-    # writer.add_scalar('Model/Params', params/1e6, 0)
-    # writer.add_scalar('Model/FLOPs', flops/1e9, 0)
 
     model = nn.DataParallel(model)
     print("Let's use", torch.cuda.device_count(), "GPUs!")
@@ -184,13 +175,6 @@ def train(args, io):
             best_test_acc
         )
         io.cprint(outstr)
-        
-        # # 保存模型参数直方图
-        # for name, param in model.named_parameters():
-        #     # 确保参数为有效浮点数据
-        #     param_data = param.data.float()
-        #     if torch.isfinite(param_data).all():
-        #         writer.add_histogram(name, param_data, epoch)
         
         # 重置GPU内存统计
         if args.cuda:
