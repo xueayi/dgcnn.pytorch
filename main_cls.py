@@ -29,15 +29,6 @@ from util import cal_loss, IOStream
 from torch.utils.tensorboard import SummaryWriter
 import sklearn.metrics as metrics
 from thop import profile, clever_format
-from thop.vision.basic_hooks import count_parameters
-
-def count_bn(m, x, y):
-    x = x[0]
-    nelements = x.numel()
-    # subtract, divide, gamma, beta
-    total_ops = 2 * nelements
-
-    m.total_ops += torch.DoubleTensor([int(total_ops)])
 
 def _init_():
     if not os.path.exists('outputs'):
@@ -75,21 +66,19 @@ def train(args, io):
 
     # 统计模型参数量和FLOPs
     try:
-        # 注册BatchNorm2d的计算规则
-        custom_ops = {
-            nn.BatchNorm2d: count_bn
-        }
+        # 简单方式计算参数量
+        total_params = sum(p.numel() for p in model.parameters())
+        io.cprint(f"模型参数量: {clever_format([total_params], '%.3f')[0]}")
+        writer.add_scalar('Model/Params', total_params, 0)
+        
+        # 尝试计算FLOPs
         dummy_input = torch.randn(1, 3, args.num_points).to(device)
-        macs, params = profile(model, inputs=(dummy_input,), custom_ops=custom_ops)
-        # 记录到TensorBoard
-        writer.add_scalar('Model/Params', params, 0)
-        writer.add_scalar('Model/MACs', macs, 0)
-        # 格式化用于显示
-        macs, params = clever_format([macs, params], "%.3f")
-        io.cprint(f"模型参数量: {params}, 计算量: {macs}")
+        flops, _ = profile(model, inputs=(dummy_input,))
+        io.cprint(f"模型计算量: {clever_format([flops], '%.3f')[0]}")
+        writer.add_scalar('Model/FLOPs', flops, 0)
     except Exception as e:
         io.cprint(f"计算模型复杂度时出错: {str(e)}")
-        # 计算参数量的备选方法
+        # 至少计算参数量
         params = sum(p.numel() for p in model.parameters())
         writer.add_scalar('Model/Params', params, 0)
         io.cprint(f"模型参数量: {clever_format([params], '%.3f')[0]}")
@@ -230,17 +219,17 @@ def test(args, io):
 
     # 统计模型参数量和FLOPs
     try:
-        # 注册BatchNorm2d的计算规则
-        custom_ops = {
-            nn.BatchNorm2d: count_bn
-        }
+        # 简单方式计算参数量
+        total_params = sum(p.numel() for p in model.parameters())
+        io.cprint(f"模型参数量: {clever_format([total_params], '%.3f')[0]}")
+        
+        # 尝试计算FLOPs
         dummy_input = torch.randn(1, 3, args.num_points).to(device)
-        macs, params = profile(model, inputs=(dummy_input,), custom_ops=custom_ops)
-        macs, params = clever_format([macs, params], "%.3f")
-        io.cprint(f"模型参数量: {params}, 计算量: {macs}")
+        flops, _ = profile(model, inputs=(dummy_input,))
+        io.cprint(f"模型计算量: {clever_format([flops], '%.3f')[0]}")
     except Exception as e:
         io.cprint(f"计算模型复杂度时出错: {str(e)}")
-        # 计算参数量的备选方法
+        # 至少计算参数量
         params = sum(p.numel() for p in model.parameters())
         io.cprint(f"模型参数量: {clever_format([params], '%.3f')[0]}")
 
