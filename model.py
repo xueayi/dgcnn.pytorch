@@ -24,6 +24,27 @@ import torch.nn.init as init
 import torch.nn.functional as F
 
 
+class ECAModule(nn.Module):
+    def __init__(self, channels, gamma=2, b=1):
+        super().__init__()
+        # 自适应计算卷积核大小
+        k_size = int(abs((math.log(channels, 2) + b) / gamma))
+        k_size = k_size if k_size % 2 else k_size + 1
+        
+        self.avg_pool = nn.AdaptiveAvgPool1d(1)
+        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, 
+                             padding=(k_size - 1) // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # 形状保持：(B, C, N) -> (B, C, 1)
+        y = self.avg_pool(x)  
+        # 通道注意力：(B, C, 1) -> (B, 1, C) -> conv -> (B, 1, C) -> (B, C, 1)
+        y = self.conv(y.permute(0, 2, 1)).permute(0, 2, 1)
+        y = self.sigmoid(y)
+        return x * y.expand_as(x)
+
+
 def knn(x, k):
     inner = -2*torch.matmul(x.transpose(2, 1), x)
     xx = torch.sum(x**2, dim=1, keepdim=True)
@@ -106,6 +127,12 @@ class DGCNN_cls(nn.Module):
         self.bn4 = nn.BatchNorm2d(256)
         self.bn5 = nn.BatchNorm1d(args.emb_dims)
 
+        # 添加ECA模块
+        self.eca1 = ECAModule(64)
+        self.eca2 = ECAModule(64)
+        self.eca3 = ECAModule(128)
+        self.eca4 = ECAModule(256)
+
         self.conv1 = nn.Sequential(nn.Conv2d(6, 64, kernel_size=1, bias=False),
                                    self.bn1,
                                    nn.LeakyReLU(negative_slope=0.2))
@@ -134,18 +161,22 @@ class DGCNN_cls(nn.Module):
         x = get_graph_feature(x, k=self.k)      # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
         x = self.conv1(x)                       # (batch_size, 3*2, num_points, k) -> (batch_size, 64, num_points, k)
         x1 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
+        x1 = self.eca1(x1)                      # 应用ECA注意力
 
         x = get_graph_feature(x1, k=self.k)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv2(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 64, num_points, k)
         x2 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
+        x2 = self.eca2(x2)                      # 应用ECA注意力
 
         x = get_graph_feature(x2, k=self.k)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv3(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 128, num_points, k)
         x3 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 128, num_points, k) -> (batch_size, 128, num_points)
+        x3 = self.eca3(x3)                      # 应用ECA注意力
 
         x = get_graph_feature(x3, k=self.k)     # (batch_size, 128, num_points) -> (batch_size, 128*2, num_points, k)
         x = self.conv4(x)                       # (batch_size, 128*2, num_points, k) -> (batch_size, 256, num_points, k)
         x4 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 256, num_points, k) -> (batch_size, 256, num_points)
+        x4 = self.eca4(x4)                      # 应用ECA注意力
 
         x = torch.cat((x1, x2, x3, x4), dim=1)  # (batch_size, 64+64+128+256, num_points)
 
