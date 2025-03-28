@@ -46,12 +46,9 @@ class ECAModule(nn.Module):
 
 
 def knn(x, k):
-    inner = -2*torch.matmul(x.transpose(2, 1), x)
-    xx = torch.sum(x**2, dim=1, keepdim=True)
-    pairwise_distance = -xx - inner - xx.transpose(2, 1)
- 
-    idx = pairwise_distance.topk(k=k, dim=-1)[1]   # (batch_size, num_points, k)
-    return idx
+    # 使用基于VP-Tree和曼哈顿距离的KNN搜索
+    from vptree import batch_knn_vptree
+    return batch_knn_vptree(x, k)
 
 
 def get_graph_feature(x, k=20, idx=None, dim9=False):
