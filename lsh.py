@@ -12,7 +12,15 @@ class LSHIndex:
         
     def _hash(self, x):
         # 投影并二值化
-        projections = torch.matmul(x, self.projections)  # (B,N,num_tables,hash_size)
+        if len(x.shape) == 2:  # 处理单个点的情况
+            x = x.unsqueeze(0).unsqueeze(0)  # (C) -> (1,1,C)
+        elif len(x.shape) == 3:  # 处理批次数据
+            if x.size(1) == 1:  # 如果是单个点
+                x = x.unsqueeze(1)  # (B,1,C) -> (B,1,C)
+        
+        # 扩展维度以匹配投影矩阵
+        x_expanded = x.unsqueeze(2).expand(-1, -1, self.num_tables, -1)  # (B,N,num_tables,C)
+        projections = torch.matmul(x_expanded, self.projections)  # (B,N,num_tables,hash_size)
         return (projections > 0).int()  # 二值化哈希码
 
     def build(self, x):
