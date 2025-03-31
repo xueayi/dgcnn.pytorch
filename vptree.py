@@ -108,6 +108,11 @@ def batch_knn_vptree(x, k):
     batch_size, num_dims, num_points = x.size()
     device = x.device
     
+    # 确保k值不超过点的数量
+    k = min(k, num_points - 1)
+    if k < 1:
+        raise ValueError(f"k值必须大于0且小于点的数量({num_points})")
+    
     # 将输入转换为(B, N, D)格式
     x = x.transpose(2, 1).contiguous()
     
@@ -122,32 +127,14 @@ def batch_knn_vptree(x, k):
     # 对每个batch并行处理
     for batch_idx in range(batch_size):
         points = x[batch_idx]
-        num_points = points.size(0)
         
-        # 使用中位数选择支撑点，而不是随机选择
-        point_norms = torch.sum(torch.abs(points), dim=1)
-        vp_idx = torch.argsort(point_norms)[num_points // 2]
-        vp = points[vp_idx]
+        # 计算所有点对之间的距离矩阵
+        distances = manhattan_distance_cuda(points, points)
         
-        # 计算到支撑点的距离
-        distances_to_vp = manhattan_distance_cuda(points, vp.unsqueeze(0))
+        # 将自身距离设置为无穷大，避免选择自身作为最近邻
+        distances.fill_diagonal_(float('inf'))
         
-        # 使用快速选择算法找到第k个最近邻的距离作为分割阈值
-        k_dist = torch.kthvalue(distances_to_vp, k + 1)[0]
-        
-        # 根据距离划分点集
-        mask = distances_to_vp <= k_dist
-        close_points = points[mask]
-        far_points = points[~mask]
-        
-        # 递归处理两个子集
-        if len(close_points) > k:
-            close_distances = manhattan_distance_cuda(close_points, points)
-            close_indices = torch.topk(close_distances, k, dim=1, largest=False)[1]
-        else:
-            close_distances = manhattan_distance_cuda(points, points)
-            close_indices = torch.topk(close_distances, k, dim=1, largest=False)[1]
-        
-        indices[batch_idx] = close_indices
+        # 直接使用topk找到k个最近邻
+        _, indices[batch_idx] = torch.topk(distances, k, dim=1, largest=False)
     
     return indices
