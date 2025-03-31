@@ -48,9 +48,20 @@ class LSHIndex:
         # 批量构建多表索引
         for table_idx in range(self.num_tables):
             batch_hashes = hashes[:, :, table_idx, :]  # (B,N,hash_size)
-            # 将哈希码转换为整数以加速查找
-            hash_ints = torch.packbits(batch_hashes.bool(), dim=-1)  # 压缩二进制哈希码
-            hash_keys = hash_ints.cpu().numpy()
+            # 使用位运算压缩哈希码
+            hash_keys = []
+            for i in range(0, batch_hashes.size(-1), 8):
+                chunk = batch_hashes[:, :, i:min(i+8, batch_hashes.size(-1))]
+                # 填充到8位
+                if chunk.size(-1) < 8:
+                    pad = torch.zeros(*chunk.shape[:-1], 8-chunk.size(-1), device=chunk.device, dtype=chunk.dtype)
+                    chunk = torch.cat([chunk, pad], dim=-1)
+                # 位运算压缩
+                bits = torch.zeros(*chunk.shape[:-1], 1, device=chunk.device, dtype=torch.int64)
+                for j in range(8):
+                    bits = bits | (chunk[..., j:j+1].long() << j)
+                hash_keys.append(bits)
+            hash_keys = torch.cat(hash_keys, dim=-1).cpu().numpy()
             
             # 批量更新哈希表
             for b in range(batch_size):
@@ -71,7 +82,20 @@ class LSHIndex:
         
         # 计算查询点的哈希值
         hashes = self._hash(x)  # (B,N,num_tables,hash_size)
-        hash_ints = torch.packbits(hashes.bool(), dim=-1)  # 压缩二进制哈希码
+        # 使用位运算压缩哈希码
+        hash_ints = []
+        for i in range(0, hashes.size(-1), 8):
+            chunk = hashes[..., i:min(i+8, hashes.size(-1))]
+            # 填充到8位
+            if chunk.size(-1) < 8:
+                pad = torch.zeros(*chunk.shape[:-1], 8-chunk.size(-1), device=chunk.device, dtype=chunk.dtype)
+                chunk = torch.cat([chunk, pad], dim=-1)
+            # 位运算压缩
+            bits = torch.zeros(*chunk.shape[:-1], 1, device=chunk.device, dtype=torch.int64)
+            for j in range(8):
+                bits = bits | (chunk[..., j:j+1].long() << j)
+            hash_ints.append(bits)
+        hash_ints = torch.cat(hash_ints, dim=-1)
         
         # 预分配结果张量
         indices = torch.zeros(batch_size, num_points, k, dtype=torch.long, device=x.device)
