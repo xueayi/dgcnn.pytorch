@@ -22,6 +22,7 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
+from vptree import batch_knn_vptree
 
 
 class ECAModule(nn.Module):
@@ -47,7 +48,7 @@ class ECAModule(nn.Module):
 
 def knn(x, k):
     # 使用基于VP-Tree和曼哈顿距离的KNN搜索
-    from vptree import batch_knn_vptree
+    # 输入：x (B, C, N)
     return batch_knn_vptree(x, k)
 
 
