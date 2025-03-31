@@ -34,7 +34,11 @@ class ECAModule(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.conv = nn.Conv1d(1, 1, kernel_size=k_size, 
                              padding=(k_size - 1) // 2, bias=False)
-        self.sigmoid = nn.Sigmoid()
+        # 使用hard_sigmoid替代sigmoid，更适合FPGA实现
+        class HardSigmoid(nn.Module):
+            def forward(self, x):
+                return torch.clamp(0.2 * x + 0.5, 0.0, 1.0)
+        self.sigmoid = HardSigmoid()
 
     def forward(self, x):
         # 形状保持：(B, C, N) -> (B, C, 1)
