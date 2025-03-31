@@ -111,32 +111,28 @@ def batch_knn_vptree(x, k):
     # 将输入转换为(B, N, D)格式
     x = x.transpose(2, 1).contiguous()
     
-    # 对每个batch中的点云构建VP-Tree并查询
-    indices = []
+    # 初始化结果张量
+    indices = torch.zeros((batch_size, num_points, k), dtype=torch.long, device=device)
+    
+    # 对每个batch并行处理
     for batch_idx in range(batch_size):
         points = x[batch_idx]
-        tree = VPTree(points)
-        batch_indices = []
         
-        # 对每个点查询k个最近邻
-        for i in range(num_points):
-            query_point = points[i]
-            try:
-                # 使用矩阵运算计算距离
-                distances = torch.sum(torch.abs(points - query_point.unsqueeze(0)), dim=1)
-                # 获取最近的k个点的索引（不包括自身）
-                _, idx = torch.topk(distances, k + 1, largest=False)
-                # 排除查询点自身
-                idx = idx[1:] if idx[0] == i else idx[:-1]
-                batch_indices.append(idx)
-            except Exception as e:
-                print(f"KNN计算出错: {str(e)}")
-                # 发生错误时使用原始VP-Tree方法作为备选
-                nearest = tree.query(query_point, k+1)
-                point_indices = torch.tensor([j for j in range(num_points) 
-                                            if any((points[j] == p).all() for p in nearest)])
-                batch_indices.append(point_indices[:k])
+        # 计算所有点对之间的曼哈顿距离
+        # 使用广播机制进行批量计算
+        # points_expanded: (N, 1, D)
+        # points_transpose: (1, N, D)
+        points_expanded = points.unsqueeze(1)
+        points_transpose = points.unsqueeze(0)
         
-        indices.append(torch.stack(batch_indices))
+        # 计算距离矩阵 (N, N)
+        distances = torch.sum(torch.abs(points_expanded - points_transpose), dim=2)
+        
+        # 将对角线设置为无穷大，避免选择自身作为最近邻
+        distances.fill_diagonal_(float('inf'))
+        
+        # 获取每个点的k个最近邻
+        _, idx = torch.topk(distances, k, dim=1, largest=False)
+        indices[batch_idx] = idx
     
-    return torch.stack(indices).to(device)
+    return indices
