@@ -121,11 +121,21 @@ def batch_knn_vptree(x, k):
         # 对每个点查询k个最近邻
         for i in range(num_points):
             query_point = points[i]
-            nearest = tree.query(query_point, k+1)  # 包含查询点自身
-            # 找到返回点在原始点云中的索引
-            point_indices = torch.tensor([j for j in range(num_points) 
-                                        if any((points[j] == p).all() for p in nearest)])
-            batch_indices.append(point_indices[:k])
+            try:
+                # 使用矩阵运算计算距离
+                distances = torch.sum(torch.abs(points - query_point.unsqueeze(0)), dim=1)
+                # 获取最近的k个点的索引（不包括自身）
+                _, idx = torch.topk(distances, k + 1, largest=False)
+                # 排除查询点自身
+                idx = idx[1:] if idx[0] == i else idx[:-1]
+                batch_indices.append(idx)
+            except Exception as e:
+                print(f"KNN计算出错: {str(e)}")
+                # 发生错误时使用原始VP-Tree方法作为备选
+                nearest = tree.query(query_point, k+1)
+                point_indices = torch.tensor([j for j in range(num_points) 
+                                            if any((points[j] == p).all() for p in nearest)])
+                batch_indices.append(point_indices[:k])
         
         indices.append(torch.stack(batch_indices))
     
