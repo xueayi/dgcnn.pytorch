@@ -46,20 +46,12 @@ class ECAModule(nn.Module):
 
 
 def knn(x, k):
-    try:
-        # 优先使用LSH方案
-        from lsh import lsh_knn
-        return lsh_knn(x, k=k, 
-                      num_tables=10,   # 可调参数
-                      hash_size=int(128*math.log2(x.shape[1]))  # 哈希长度自适应
-                      )
-    except Exception as e:
-        print(f"LSH failed:{str(e)}, fallback to brute force")
-        # 原有暴力搜索实现
-        inner = -2*torch.matmul(x.transpose(2, 1), x)
-        xx = torch.sum(x**2, dim=1, keepdim=True)
-        pairwise_distance = -xx - inner - xx.transpose(2, 1)
-        return pairwise_distance.topk(k=k, dim=-1)[1]
+    inner = -2*torch.matmul(x.transpose(2, 1), x)
+    xx = torch.sum(x**2, dim=1, keepdim=True)
+    pairwise_distance = -xx - inner - xx.transpose(2, 1)
+ 
+    idx = pairwise_distance.topk(k=k, dim=-1)[1]   # (batch_size, num_points, k)
+    return idx
 
 
 def get_graph_feature(x, k=20, idx=None, dim9=False):
