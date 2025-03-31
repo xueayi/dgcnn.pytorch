@@ -45,15 +45,23 @@ class LSHIndex:
         # 并行计算所有点的哈希值
         hashes = self._hash(x)  # (B,N,num_tables,hash_size)
         
-        # 构建多表索引
+        # 批量构建多表索引
         for table_idx in range(self.num_tables):
             batch_hashes = hashes[:, :, table_idx, :]  # (B,N,hash_size)
+            # 将哈希码转换为整数以加速查找
+            hash_ints = torch.packbits(batch_hashes.bool(), dim=-1)  # 压缩二进制哈希码
+            hash_keys = hash_ints.cpu().numpy()
+            
+            # 批量更新哈希表
             for b in range(batch_size):
-                for n in range(num_points):
-                    h = tuple(batch_hashes[b, n].tolist())
-                    if h not in self.hash_tables[table_idx]:
-                        self.hash_tables[table_idx][h] = []
-                    self.hash_tables[table_idx][h].append((b, n))
+                # 使用numpy的unique加速重复哈希值的处理
+                unique_hashes, inverse_indices = np.unique(hash_keys[b], return_inverse=True, axis=0)
+                for i, h in enumerate(unique_hashes):
+                    h_tuple = tuple(h.tolist())
+                    points = np.where(inverse_indices == i)[0]
+                    if h_tuple not in self.hash_tables[table_idx]:
+                        self.hash_tables[table_idx][h_tuple] = []
+                    self.hash_tables[table_idx][h_tuple].extend([(b, int(p)) for p in points])
     
     def query(self, x, k):
         # LSH查询K近邻
@@ -63,34 +71,51 @@ class LSHIndex:
         
         # 计算查询点的哈希值
         hashes = self._hash(x)  # (B,N,num_tables,hash_size)
+        hash_ints = torch.packbits(hashes.bool(), dim=-1)  # 压缩二进制哈希码
         
-        # 在每个哈希表中查找邻居
-        indices = torch.zeros(batch_size, num_points, k).long().to(x.device)
+        # 预分配结果张量
+        indices = torch.zeros(batch_size, num_points, k, dtype=torch.long, device=x.device)
+        
+        # 批量处理每个batch
         for b in range(batch_size):
+            # 预计算当前batch中所有点对之间的距离矩阵
+            points_b = x[b]  # (N,C)
+            dist_matrix = torch.cdist(points_b, points_b)  # (N,N)
+            
+            # 并行处理当前batch中的所有点
             for n in range(num_points):
-                # 收集所有表中的候选点
+                # 快速收集所有表中的候选点
                 candidates = set()
+                query_hash = hash_ints[b, n].cpu().numpy()
+                
+                # 并行查询所有哈希表
                 for table_idx in range(self.num_tables):
-                    h = tuple(hashes[b, n, table_idx].tolist())
+                    h = tuple(query_hash[table_idx].tolist())
                     if h in self.hash_tables[table_idx]:
-                        candidates.update(self.hash_tables[table_idx][h])
+                        # 只添加同一batch内的点
+                        candidates.update(p[1] for p in self.hash_tables[table_idx][h] if p[0] == b)
                 
-                # 计算实际距离并选择最近的k个点
-                if len(candidates) > 0:
-                    candidates = [(c[0], c[1]) for c in candidates if c[0] == b]  # 只选择同一batch内的点
-                    if len(candidates) > 0:
-                        points = x[b, [c[1] for c in candidates]]  # (M,C)
-                        query_point = x[b, n].unsqueeze(0)  # (1,C)
-                        dists = torch.sum((points - query_point) ** 2, dim=1)  # (M,)
-                        _, topk_indices = torch.topk(dists, min(k, len(candidates)), largest=False)
-                        for ki in range(min(k, len(candidates))):
-                            indices[b, n, ki] = candidates[topk_indices[ki]][1]
-                
-                # 如果候选点不足k个，用随机点填充
-                if len(candidates) < k:
-                    remaining = k - len(candidates)
-                    random_indices = torch.randperm(num_points)[:remaining]
-                    indices[b, n, len(candidates):] = random_indices
+                if candidates:
+                    # 使用预计算的距离矩阵快速获取最近邻
+                    candidates = torch.tensor(list(candidates), device=x.device)
+                    dists = dist_matrix[n, candidates]
+                    _, topk_indices = torch.topk(dists, min(k, len(candidates)), largest=False)
+                    valid_neighbors = candidates[topk_indices]
+                    indices[b, n, :len(valid_neighbors)] = valid_neighbors
+                    
+                    # 如果候选点不足k个，使用随机采样补充
+                    if len(valid_neighbors) < k:
+                        mask = torch.ones(num_points, dtype=torch.bool, device=x.device)
+                        mask[valid_neighbors] = False
+                        remaining_points = torch.nonzero(mask).squeeze(1)
+                        if len(remaining_points) > 0:
+                            perm = torch.randperm(len(remaining_points), device=x.device)
+                            random_indices = remaining_points[perm[:k-len(valid_neighbors)]]
+                            indices[b, n, len(valid_neighbors):] = random_indices
+                else:
+                    # 如果没有找到候选点，随机选择k个不同的点
+                    perm = torch.randperm(num_points, device=x.device)
+                    indices[b, n] = perm[:k]
         
         return indices
 
