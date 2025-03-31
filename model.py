@@ -46,6 +46,29 @@ class ECAModule(nn.Module):
 
 
 def knn(x, k):
+    """
+    Find k-nearest neighbors using VP-Tree with Manhattan distance
+    
+    Args:
+        x: Tensor of shape [batch_size, feature_dim, num_points]
+        k: Number of nearest neighbors to find
+        
+    Returns:
+        Tensor of shape [batch_size, num_points, k] containing indices of k-nearest neighbors
+    """
+    # 导入VP-Tree实现
+    from vptree import vp_tree_knn_optimized
+    
+    # 使用VP-Tree的优化版本进行KNN搜索
+    idx = vp_tree_knn_optimized(x, k)   # (batch_size, num_points, k)
+    return idx
+
+
+def knn_original(x, k):
+    """
+    Original KNN implementation using Euclidean distance
+    Kept for reference and fallback
+    """
     inner = -2*torch.matmul(x.transpose(2, 1), x)
     xx = torch.sum(x**2, dim=1, keepdim=True)
     pairwise_distance = -xx - inner - xx.transpose(2, 1)
@@ -54,15 +77,21 @@ def knn(x, k):
     return idx
 
 
-def get_graph_feature(x, k=20, idx=None, dim9=False):
+def get_graph_feature(x, k=20, idx=None, dim9=False, use_vptree=True):
     batch_size = x.size(0)
     num_points = x.size(2)
     x = x.view(batch_size, -1, num_points)
     if idx is None:
         if dim9 == False:
-            idx = knn(x, k=k)   # (batch_size, num_points, k)
+            if use_vptree:
+                idx = knn(x, k=k)   # (batch_size, num_points, k)
+            else:
+                idx = knn_original(x, k=k)   # 使用原始KNN实现
         else:
-            idx = knn(x[:, 6:], k=k)
+            if use_vptree:
+                idx = knn(x[:, 6:], k=k)
+            else:
+                idx = knn_original(x[:, 6:], k=k)
     device = torch.device('cuda')
 
     idx_base = torch.arange(0, batch_size, device=device).view(-1, 1, 1)*num_points
@@ -156,24 +185,24 @@ class DGCNN_cls(nn.Module):
         self.dp2 = nn.Dropout(p=args.dropout)
         self.linear3 = nn.Linear(256, output_channels)
 
-    def forward(self, x):
+    def forward(self, x, use_vptree=True):
         batch_size = x.size(0)
-        x = get_graph_feature(x, k=self.k)      # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
+        x = get_graph_feature(x, k=self.k, use_vptree=True)      # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
         x = self.conv1(x)                       # (batch_size, 3*2, num_points, k) -> (batch_size, 64, num_points, k)
         x1 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
         x1 = self.eca1(x1)                      # 应用ECA注意力
 
-        x = get_graph_feature(x1, k=self.k)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
+        x = get_graph_feature(x1, k=self.k, use_vptree=True)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv2(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 64, num_points, k)
         x2 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
         x2 = self.eca2(x2)                      # 应用ECA注意力
 
-        x = get_graph_feature(x2, k=self.k)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
+        x = get_graph_feature(x2, k=self.k, use_vptree=True)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv3(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 128, num_points, k)
         x3 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 128, num_points, k) -> (batch_size, 128, num_points)
         x3 = self.eca3(x3)                      # 应用ECA注意力
 
-        x = get_graph_feature(x3, k=self.k)     # (batch_size, 128, num_points) -> (batch_size, 128*2, num_points, k)
+        x = get_graph_feature(x3, k=self.k, use_vptree=True)     # (batch_size, 128, num_points) -> (batch_size, 128*2, num_points, k)
         x = self.conv4(x)                       # (batch_size, 128*2, num_points, k) -> (batch_size, 256, num_points, k)
         x4 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 256, num_points, k) -> (batch_size, 256, num_points)
         x4 = self.eca4(x4)                      # 应用ECA注意力
@@ -296,27 +325,27 @@ class DGCNN_partseg(nn.Module):
         self.conv11 = nn.Conv1d(128, self.seg_num_all, kernel_size=1, bias=False)
         
 
-    def forward(self, x, l):
+    def forward(self, x, l, use_vptree=True):
         batch_size = x.size(0)
         num_points = x.size(2)
 
-        x0 = get_graph_feature(x, k=self.k)     # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
+        x0 = get_graph_feature(x, k=self.k, use_vptree=use_vptree)     # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
         t = self.transform_net(x0)              # (batch_size, 3, 3)
         x = x.transpose(2, 1)                   # (batch_size, 3, num_points) -> (batch_size, num_points, 3)
         x = torch.bmm(x, t)                     # (batch_size, num_points, 3) * (batch_size, 3, 3) -> (batch_size, num_points, 3)
         x = x.transpose(2, 1)                   # (batch_size, num_points, 3) -> (batch_size, 3, num_points)
 
-        x = get_graph_feature(x, k=self.k)      # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
+        x = get_graph_feature(x, k=self.k, use_vptree=use_vptree)      # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
         x = self.conv1(x)                       # (batch_size, 3*2, num_points, k) -> (batch_size, 64, num_points, k)
         x = self.conv2(x)                       # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points, k)
         x1 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
 
-        x = get_graph_feature(x1, k=self.k)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
+        x = get_graph_feature(x1, k=self.k, use_vptree=use_vptree)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv3(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 64, num_points, k)
         x = self.conv4(x)                       # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points, k)
         x2 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
 
-        x = get_graph_feature(x2, k=self.k)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
+        x = get_graph_feature(x2, k=self.k, use_vptree=use_vptree)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv5(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 64, num_points, k)
         x3 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
 
@@ -386,21 +415,21 @@ class DGCNN_semseg_s3dis(nn.Module):
         self.conv9 = nn.Conv1d(256, 13, kernel_size=1, bias=False)
         
 
-    def forward(self, x):
+    def forward(self, x, use_vptree=True):
         batch_size = x.size(0)
         num_points = x.size(2)
 
-        x = get_graph_feature(x, k=self.k, dim9=True)   # (batch_size, 9, num_points) -> (batch_size, 9*2, num_points, k)
+        x = get_graph_feature(x, k=self.k, dim9=True, use_vptree=use_vptree)   # (batch_size, 9, num_points) -> (batch_size, 9*2, num_points, k)
         x = self.conv1(x)                       # (batch_size, 9*2, num_points, k) -> (batch_size, 64, num_points, k)
         x = self.conv2(x)                       # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points, k)
         x1 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
 
-        x = get_graph_feature(x1, k=self.k)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
+        x = get_graph_feature(x1, k=self.k, use_vptree=use_vptree)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv3(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 64, num_points, k)
         x = self.conv4(x)                       # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points, k)
         x2 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
 
-        x = get_graph_feature(x2, k=self.k)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
+        x = get_graph_feature(x2, k=self.k, use_vptree=use_vptree)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv5(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 64, num_points, k)
         x3 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
 
@@ -484,7 +513,7 @@ class DGCNN_semseg_scannet(nn.Module):
         x1 = x.max(dim=-1, keepdim=False)[0]
 
         # (bs, 64, npoint) -> (bs, 64*2, npoint, k)
-        x = get_graph_feature(x1, k=self.k)
+        x = get_graph_feature(x1, k=self.k, use_vptree=use_vptree)
         # (bs, 64*2, npoint, k) -> (bs, 64, npoint, k)
         x = self.conv3(x)
         # (bs, 64, npoint, k) -> (bs, 64, npoint, k)
@@ -493,7 +522,7 @@ class DGCNN_semseg_scannet(nn.Module):
         x2 = x.max(dim=-1, keepdim=False)[0]
 
         # (bs, 64, npoint) -> (bs, 64*2, npoint, k)
-        x = get_graph_feature(x2, k=self.k)
+        x = get_graph_feature(x2, k=self.k, use_vptree=use_vptree)
         # (bs, 64*2, npoint, k) -> (bs, 64, npoint, k)
         x = self.conv5(x)
         # (bs, 64, npoint, k) -> (bs, 64, npoint)
