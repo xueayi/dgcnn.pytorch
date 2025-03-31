@@ -50,9 +50,9 @@ def knn(x, k):
     # 使用基于VP-Tree和曼哈顿距离的KNN搜索
     # 输入：x (B, C, N)
     try:
-        print(f"KNN搜索输入形状: {x.shape}, k={k}")
+        #print(f"KNN搜索输入形状: {x.shape}, k={k}")
         indices = batch_knn_vptree(x, k)
-        print(f"KNN搜索完成，输出形状: {indices.shape}")
+        #print(f"KNN搜索完成，输出形状: {indices.shape}")
         return indices
     except Exception as e:
         print(f"KNN搜索出错: {str(e)}")
