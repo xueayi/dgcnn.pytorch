@@ -45,7 +45,144 @@ class ECAModule(nn.Module):
         return x * y.expand_as(x)
 
 
-def knn(x, k):
+class VPTree:
+    """VP-Tree implementation for efficient nearest neighbor search
+    针对FPGA部署优化的VP-Tree实现，使用曼哈顿距离
+    """
+    def __init__(self, points, distance_fn=None):
+        self.points = points
+        # 默认使用曼哈顿距离，更适合FPGA实现
+        self.distance_fn = distance_fn if distance_fn else self._manhattan_distance
+        self.tree = self._build_tree(list(range(len(points))))
+    
+    def _manhattan_distance(self, x, y):
+        """计算曼哈顿距离，适合FPGA实现"""
+        return torch.sum(torch.abs(x - y))
+    
+    def _build_tree(self, indices):
+        if not indices:
+            return None
+        
+        # 如果只有一个点，直接返回叶节点
+        if len(indices) == 1:
+            return {"index": indices[0], "threshold": 0, "left": None, "right": None}
+        
+        # 选择一个点作为根节点（使用第一个点以保持确定性）
+        vantage_point_idx = indices[0]
+        indices = indices[1:]
+        
+        if not indices:
+            return {"index": vantage_point_idx, "threshold": 0, "left": None, "right": None}
+        
+        # 计算其他点到根节点的距离
+        distances = [self.distance_fn(self.points[vantage_point_idx], self.points[idx]) for idx in indices]
+        
+        # 根据距离中位数划分左右子树
+        median_idx = len(distances) // 2
+        threshold = sorted(distances)[median_idx]
+        
+        left_indices = [indices[i] for i in range(len(indices)) if distances[i] <= threshold]
+        right_indices = [indices[i] for i in range(len(indices)) if distances[i] > threshold]
+        
+        # 递归构建左右子树
+        return {
+            "index": vantage_point_idx,
+            "threshold": threshold,
+            "left": self._build_tree(left_indices),
+            "right": self._build_tree(right_indices)
+        }
+    
+    def search(self, query, k=1):
+        """查找最近的k个邻居"""
+        # 使用优先队列存储最近的k个点
+        import heapq
+        nearest = []
+        
+        def search_tree(node):
+            if node is None:
+                return
+            
+            # 计算查询点到当前节点的距离
+            dist = self.distance_fn(query, self.points[node["index"]])
+            
+            # 如果队列未满或距离小于队列中最大距离，则更新队列
+            if len(nearest) < k:
+                heapq.heappush(nearest, (-dist, node["index"]))
+            elif -dist > nearest[0][0]:
+                heapq.heappushpop(nearest, (-dist, node["index"]))
+            
+            # 决定先搜索哪个子树
+            if dist <= node["threshold"]:
+                search_tree(node["left"])
+                # 如果另一侧可能有更近的点，也搜索另一侧
+                if len(nearest) < k or dist + node["threshold"] > -nearest[0][0]:
+                    search_tree(node["right"])
+            else:
+                search_tree(node["right"])
+                # 如果另一侧可能有更近的点，也搜索另一侧
+                if len(nearest) < k or dist - node["threshold"] > -nearest[0][0]:
+                    search_tree(node["left"])
+        
+        search_tree(self.tree)
+        # 返回最近的k个点的索引
+        return [idx for _, idx in sorted(nearest, reverse=True)]
+
+# 曼哈顿距离计算函数 - 适合FPGA实现
+def manhattan_distance(x, y):
+    """计算两点间的曼哈顿距离"""
+    return torch.sum(torch.abs(x - y))
+
+def knn(x, k, use_manhattan=True):
+    """KNN算法，支持曼哈顿距离(FPGA友好)和欧氏距离
+    
+    Args:
+        x: 输入张量，形状为 (batch_size, feature_dim, num_points)
+        k: 近邻数量
+        use_manhattan: 是否使用曼哈顿距离(True)或欧氏距离(False)
+        
+    Returns:
+        idx: 近邻索引，形状为 (batch_size, num_points, k)
+    """
+    if use_manhattan:
+        return knn_manhattan(x, k)
+    else:
+        return knn_euclidean(x, k)
+
+
+def knn_manhattan(x, k):
+    """基于曼哈顿距离的KNN算法，针对FPGA部署优化
+    
+    Args:
+        x: 输入张量，形状为 (batch_size, feature_dim, num_points)
+        k: 近邻数量
+        
+    Returns:
+        idx: 近邻索引，形状为 (batch_size, num_points, k)
+    """
+    batch_size, feature_dim, num_points = x.size()
+    device = x.device
+    
+    # 计算曼哈顿距离矩阵 - 直接计算而不使用VP-Tree，以提高训练速度
+    # 转置为便于计算点对之间的距离
+    x_t = x.transpose(2, 1).contiguous()  # (batch_size, num_points, feature_dim)
+    
+    # 初始化距离矩阵
+    manhattan_dist = torch.zeros((batch_size, num_points, num_points), device=device)
+    
+    # 计算所有点对之间的曼哈顿距离
+    for b in range(batch_size):
+        for i in range(num_points):
+            # 广播计算当前点与所有其他点的曼哈顿距离
+            manhattan_dist[b, i] = torch.sum(torch.abs(x_t[b, i:i+1] - x_t[b]), dim=-1)
+    
+    # 获取每个点的k个最近邻
+    # 注意：这里使用负值是因为topk默认返回最大值，而我们需要最小距离
+    idx = (-manhattan_dist).topk(k=k, dim=-1)[1]  # (batch_size, num_points, k)
+    return idx
+
+# 为了兼容性，保留原始的欧氏距离KNN实现
+def knn_euclidean(x, k):
+    """原始的基于欧氏距离的KNN实现"""
     inner = -2*torch.matmul(x.transpose(2, 1), x)
     xx = torch.sum(x**2, dim=1, keepdim=True)
     pairwise_distance = -xx - inner - xx.transpose(2, 1)
@@ -54,26 +191,38 @@ def knn(x, k):
     return idx
 
 
-def get_graph_feature(x, k=20, idx=None, dim9=False):
+def get_graph_feature(x, k=20, idx=None, dim9=False, use_manhattan=False, use_vptree=False):
+    """构建图特征
+    
+    Args:
+        x: 输入张量，形状为 (batch_size, feature_dim, num_points)
+        k: 近邻数量
+        idx: 预计算的近邻索引，如果为None则计算
+        dim9: 是否使用前9个维度进行KNN计算
+        use_manhattan: 是否使用曼哈顿距离(True)或欧氏距离(False)
+        use_vptree: 是否使用VP-Tree结构(适合FPGA部署但训练较慢)
+        
+    Returns:
+        feature: 图特征，形状为 (batch_size, 2*num_dims, num_points, k)
+    """
     batch_size = x.size(0)
     num_points = x.size(2)
     x = x.view(batch_size, -1, num_points)
+    
     if idx is None:
         if dim9 == False:
-            idx = knn(x, k=k)   # (batch_size, num_points, k)
+            idx = knn(x, k=k, use_manhattan=use_manhattan, use_vptree=use_vptree)   # (batch_size, num_points, k)
         else:
-            idx = knn(x[:, 6:], k=k)
-    device = torch.device('cuda')
-
+            idx = knn(x[:, 6:], k=k, use_manhattan=use_manhattan, use_vptree=use_vptree)
+    
+    device = x.device
     idx_base = torch.arange(0, batch_size, device=device).view(-1, 1, 1)*num_points
-
     idx = idx + idx_base
-
     idx = idx.view(-1)
  
     _, num_dims, _ = x.size()
 
-    x = x.transpose(2, 1).contiguous()   # (batch_size, num_points, num_dims)  -> (batch_size*num_points, num_dims) #   batch_size * num_points * k + range(0, batch_size*num_points)
+    x = x.transpose(2, 1).contiguous()   # (batch_size, num_points, num_dims)  -> (batch_size*num_points, num_dims)
     feature = x.view(batch_size*num_points, -1)[idx, :]
     feature = feature.view(batch_size, num_points, k, num_dims) 
     x = x.view(batch_size, num_points, 1, num_dims).repeat(1, 1, k, 1)
