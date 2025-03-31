@@ -49,7 +49,20 @@ class ECAModule(nn.Module):
 def knn(x, k):
     # 使用基于VP-Tree和曼哈顿距离的KNN搜索
     # 输入：x (B, C, N)
-    return batch_knn_vptree(x, k)
+    try:
+        print(f"KNN搜索输入形状: {x.shape}, k={k}")
+        indices = batch_knn_vptree(x, k)
+        print(f"KNN搜索完成，输出形状: {indices.shape}")
+        return indices
+    except Exception as e:
+        print(f"KNN搜索出错: {str(e)}")
+        # 如果VP-Tree方法失败，回退到暴力搜索
+        B, C, N = x.size()
+        inner = -2 * torch.matmul(x.transpose(2, 1), x)
+        xx = torch.sum(x**2, dim=1, keepdim=True)
+        pairwise_distance = -xx - inner - xx.transpose(2, 1)
+        idx = pairwise_distance.topk(k=k, dim=-1)[1]
+        return idx
 
 
 def get_graph_feature(x, k=20, idx=None, dim9=False):

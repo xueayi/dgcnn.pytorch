@@ -67,14 +67,18 @@ def train(args, io):
     print(str(model))
 
     # 使用副本统计模型参数量和FLOPs
-    model_copy = copy.deepcopy(model)
-    dummy_input = torch.randn(1, 3, args.num_points).to(device)
-    macs, params = profile(model_copy, inputs=(dummy_input,))
-    del model_copy  # 统计完成后立即释放副本
-    writer.add_scalar('Model/Params', params, 0)
-    writer.add_scalar('Model/MACs', macs, 0)
-    macs, params = clever_format([macs, params], "%.3f")
-    io.cprint(f"模型参数量: {params}, 计算量: {macs}")
+    try:
+        with torch.no_grad():
+            model_copy = copy.deepcopy(model)
+            dummy_input = torch.randn(1, 3, args.num_points).to(device)
+            macs, params = profile(model_copy, inputs=(dummy_input,), verbose=False)
+            del model_copy  # 统计完成后立即释放副本
+            writer.add_scalar('Model/Params', params, 0)
+            writer.add_scalar('Model/MACs', macs, 0)
+            macs, params = clever_format([macs, params], "%.3f")
+            io.cprint(f"模型参数量: {params}, 计算量: {macs}")
+    except Exception as e:
+        io.cprint(f"统计模型参数量时出错: {str(e)}，继续训练流程")
 
     model = nn.DataParallel(model)
     print("Let's use", torch.cuda.device_count(), "GPUs!")
