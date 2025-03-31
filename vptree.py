@@ -253,7 +253,7 @@ def vp_tree_knn(x: torch.Tensor, k: int) -> torch.Tensor:
 def vp_tree_knn_optimized(x: torch.Tensor, k: int) -> torch.Tensor:
     """
     Optimized VP-Tree based KNN search for DGCNN model
-    Uses Manhattan distance with precomputed distance matrix
+    Uses Manhattan distance with batched computation
     
     Args:
         x: Tensor of shape [batch_size, feature_dim, num_points]
@@ -262,36 +262,22 @@ def vp_tree_knn_optimized(x: torch.Tensor, k: int) -> torch.Tensor:
     Returns:
         Tensor of shape [batch_size, num_points, k] containing indices of k-nearest neighbors
     """
-    batch_size = x.size(0)
-    num_points = x.size(2)
+    batch_size, feature_dim, num_points = x.size()
     device = x.device
     
     # 转置为 [batch_size, num_points, feature_dim]
     x = x.transpose(2, 1).contiguous()
     
-    # 存储所有批次的KNN索引
-    all_indices = []
+    # 使用torch.cdist计算所有批次的距离矩阵
+    # 返回形状: [batch_size, num_points, num_points]
+    dist_matrix = torch.cdist(x, x, p=1)  # p=1表示曼哈顿距离
     
-    # 对每个批次单独处理
-    for batch_idx in range(batch_size):
-        # 获取当前批次的点
-        points = x[batch_idx]  # [num_points, feature_dim]
-        
-        # 计算曼哈顿距离矩阵
-        # 使用广播计算所有点对之间的曼哈顿距离
-        # 形状: [num_points, num_points]
-        dist_matrix = torch.sum(torch.abs(points.unsqueeze(1) - points.unsqueeze(0)), dim=2)
-        
-        # 将自身距离设为无穷大，以便不选择自身作为最近邻
-        dist_matrix.fill_diagonal_(float('inf'))
-        
-        # 获取每个点的k个最近邻的索引
-        # topk返回(values, indices)，我们只需要indices
-        _, indices = dist_matrix.topk(k=k, dim=1, largest=False)
-        
-        all_indices.append(indices)
+    # 将自身距离设为无穷大，以避免选择自身作为最近邻
+    mask = torch.eye(num_points, device=device).bool().unsqueeze(0).expand(batch_size, -1, -1)
+    dist_matrix.masked_fill_(mask, float('inf'))
     
-    # 将所有批次的索引堆叠起来
-    indices = torch.stack(all_indices)
+    # 获取每个点的k个最近邻的索引
+    # 返回形状: [batch_size, num_points, k]
+    _, indices = dist_matrix.topk(k=k, dim=2, largest=False)
     
     return indices
