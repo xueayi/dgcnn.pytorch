@@ -3,22 +3,31 @@ import math
 import numpy as np
 
 class LSHIndex:
-    def __init__(self, dim, num_tables=10, hash_size=512):
+    def __init__(self, dim, num_tables=10, hash_size=512, device=None):
         self.num_tables = num_tables
         self.hash_size = hash_size
+        self.device = device if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # 生成随机投影矩阵，并量化为定点数
-        self.projections = torch.randn(size=(num_tables, dim, hash_size))
+        self.projections = torch.randn(size=(num_tables, dim, hash_size), device=self.device)
         self.projections = torch.round(self.projections * 1024) / 1024  # 10位定点数
         
         # 初始化哈希表
         self.hash_tables = [dict() for _ in range(num_tables)]
         
     def _hash(self, x):
+        # 确保输入在正确的设备上
+        x = x.to(self.device)
         # 定点数矩阵乘法
         x = torch.round(x * 1024) / 1024  # 输入量化
-        projections = torch.matmul(x, self.projections)  # (B,N,num_tables,hash_size)
-        return (projections > 0).int()  # 二值化哈希码
+        # 调整维度以适应批处理
+        x_shape = x.shape
+        x_reshaped = x.view(-1, x_shape[-1])  # (B*N, C)
+        projections_reshaped = self.projections.transpose(0, 1)  # (dim, num_tables, hash_size)
+        # 计算哈希值
+        hashes = torch.matmul(x_reshaped, projections_reshaped)  # (B*N, num_tables, hash_size)
+        hashes = hashes.view(*x_shape[:-1], self.num_tables, self.hash_size)  # (B,N,num_tables,hash_size)
+        return (hashes > 0).int()  # 二值化哈希码
     
     def build(self, x):
         # 构建哈希表索引
@@ -88,10 +97,20 @@ def lsh_knn(x, k):
     """
     # 初始化LSH索引
     batch_size, channels, num_points = x.size()
-    lsh = LSHIndex(dim=channels, num_tables=10, hash_size=int(128*math.log2(num_points)))
+    device = x.device
+    lsh = LSHIndex(dim=channels, num_tables=10, hash_size=int(128*math.log2(num_points)), device=device)
     
     # 构建索引并查询
-    lsh.build(x)
-    indices = lsh.query(x, k)
+    try:
+        lsh.build(x)
+        indices = lsh.query(x, k)
+    except Exception as e:
+        print(f"LSH failed: {str(e)}, fallback to brute force")
+        # 暴力计算KNN
+        x_t = x.transpose(2, 1).contiguous()  # (B,N,C)
+        inner = -2 * torch.matmul(x_t, x)  # (B,N,N)
+        xx = torch.sum(x_t ** 2, dim=2, keepdim=True)  # (B,N,1)
+        pairwise_distance = xx + inner + xx.transpose(2, 1)  # (B,N,N)
+        indices = pairwise_distance.topk(k=k, dim=-1, largest=False)[1]  # (B,N,k)
     
     return indices
