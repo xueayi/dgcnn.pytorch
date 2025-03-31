@@ -23,7 +23,8 @@ class LSHIndex:
         # 调整维度以适应批处理
         x_shape = x.shape
         x_reshaped = x.view(-1, x_shape[-1])  # (B*N, C)
-        projections_reshaped = self.projections.transpose(0, 1)  # (dim, num_tables, hash_size)
+        # 重新排列投影矩阵维度以匹配输入
+        projections_reshaped = self.projections.permute(1, 0, 2)  # (dim, num_tables, hash_size) -> (C, num_tables, hash_size)
         # 计算哈希值
         hashes = torch.matmul(x_reshaped, projections_reshaped)  # (B*N, num_tables, hash_size)
         hashes = hashes.view(*x_shape[:-1], self.num_tables, self.hash_size)  # (B,N,num_tables,hash_size)
