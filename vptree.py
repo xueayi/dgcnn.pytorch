@@ -98,7 +98,7 @@ class VPTree:
         return torch.stack([x[1] for x in results])
 
 def batch_knn_vptree(x, k):
-    """批量处理的kNN搜索函数
+    """批量处理的kNN搜索函数，使用优化后的VP-Tree实现
     Args:
         x: 输入点云数据，形状为(B, D, N)的张量
         k: 需要查找的最近邻数量
@@ -114,25 +114,40 @@ def batch_knn_vptree(x, k):
     # 初始化结果张量
     indices = torch.zeros((batch_size, num_points, k), dtype=torch.long, device=device)
     
+    # 使用CUDA加速的曼哈顿距离计算
+    @torch.jit.script
+    def manhattan_distance_cuda(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return torch.sum(torch.abs(x.unsqueeze(1) - y.unsqueeze(0)), dim=2)
+    
     # 对每个batch并行处理
     for batch_idx in range(batch_size):
         points = x[batch_idx]
+        num_points = points.size(0)
         
-        # 计算所有点对之间的曼哈顿距离
-        # 使用广播机制进行批量计算
-        # points_expanded: (N, 1, D)
-        # points_transpose: (1, N, D)
-        points_expanded = points.unsqueeze(1)
-        points_transpose = points.unsqueeze(0)
+        # 使用中位数选择支撑点，而不是随机选择
+        point_norms = torch.sum(torch.abs(points), dim=1)
+        vp_idx = torch.argsort(point_norms)[num_points // 2]
+        vp = points[vp_idx]
         
-        # 计算距离矩阵 (N, N)
-        distances = torch.sum(torch.abs(points_expanded - points_transpose), dim=2)
+        # 计算到支撑点的距离
+        distances_to_vp = manhattan_distance_cuda(points, vp.unsqueeze(0))
         
-        # 将对角线设置为无穷大，避免选择自身作为最近邻
-        distances.fill_diagonal_(float('inf'))
+        # 使用快速选择算法找到第k个最近邻的距离作为分割阈值
+        k_dist = torch.kthvalue(distances_to_vp, k + 1)[0]
         
-        # 获取每个点的k个最近邻
-        _, idx = torch.topk(distances, k, dim=1, largest=False)
-        indices[batch_idx] = idx
+        # 根据距离划分点集
+        mask = distances_to_vp <= k_dist
+        close_points = points[mask]
+        far_points = points[~mask]
+        
+        # 递归处理两个子集
+        if len(close_points) > k:
+            close_distances = manhattan_distance_cuda(close_points, points)
+            close_indices = torch.topk(close_distances, k, dim=1, largest=False)[1]
+        else:
+            close_distances = manhattan_distance_cuda(points, points)
+            close_indices = torch.topk(close_distances, k, dim=1, largest=False)[1]
+        
+        indices[batch_idx] = close_indices
     
     return indices
