@@ -35,7 +35,7 @@
 ### 运行命令
 
 ```bash
-python main_cls.py --exp_name=cls_1024_eval --num_points=1024 --k=20 --eval=True --model_path=outputs/cls_1024/models/model.t7 --use_point_nn=True --lambda_weight=0.5
+python main_cls.py --exp_name=cls_0327_eca_nn_eval --num_points=1024 --k=20 --eval=True --use_point_nn=True --lambda_weight=0.5 --model_path=outputs/exp_0327_eca/models/model.t7
 ```
 
 ### 参数说明
