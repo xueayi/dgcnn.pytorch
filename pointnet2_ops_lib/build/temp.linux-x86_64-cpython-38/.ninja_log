@@ -1,0 +1,10 @@
+# ninja log v5
+0	10165	1743498832291795140	/home/xhic/neural_network/dgcnn.pytorch/pointnet2_ops_lib/build/temp.linux-x86_64-cpython-38/pointnet2_ops/_ext-src/src/ball_query.o	5204814df024be82
+3	10237	1743498832363794953	/home/xhic/neural_network/dgcnn.pytorch/pointnet2_ops_lib/build/temp.linux-x86_64-cpython-38/pointnet2_ops/_ext-src/src/sampling.o	714d3f93ae99e57a
+2	10346	1743498832476794658	/home/xhic/neural_network/dgcnn.pytorch/pointnet2_ops_lib/build/temp.linux-x86_64-cpython-38/pointnet2_ops/_ext-src/src/group_points.o	577abb9b595b55d1
+1	11020	1743498833148792906	/home/xhic/neural_network/dgcnn.pytorch/pointnet2_ops_lib/build/temp.linux-x86_64-cpython-38/pointnet2_ops/_ext-src/src/bindings.o	9f527bf69b7c5b5f
+2	11023	1743498833148792906	/home/xhic/neural_network/dgcnn.pytorch/pointnet2_ops_lib/build/temp.linux-x86_64-cpython-38/pointnet2_ops/_ext-src/src/interpolate.o	3d0d3d9e2f11897d
+2	21902	1743498844028764537	/home/xhic/neural_network/dgcnn.pytorch/pointnet2_ops_lib/build/temp.linux-x86_64-cpython-38/pointnet2_ops/_ext-src/src/group_points_gpu.o	45863ac1e9cd6bcf
+3	22147	1743498844272763901	/home/xhic/neural_network/dgcnn.pytorch/pointnet2_ops_lib/build/temp.linux-x86_64-cpython-38/pointnet2_ops/_ext-src/src/interpolate_gpu.o	9fdb51d45617f674
+3	23279	1743498845407760941	/home/xhic/neural_network/dgcnn.pytorch/pointnet2_ops_lib/build/temp.linux-x86_64-cpython-38/pointnet2_ops/_ext-src/src/sampling_gpu.o	77afccfee4d2160f
+1	23854	1743498845983759440	/home/xhic/neural_network/dgcnn.pytorch/pointnet2_ops_lib/build/temp.linux-x86_64-cpython-38/pointnet2_ops/_ext-src/src/ball_query_gpu.o	695c3c2dc2217c95

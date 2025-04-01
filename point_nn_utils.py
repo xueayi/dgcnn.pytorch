@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from tqdm import tqdm
 
 # 导入Point-NN相关模块
 from nn_models import Point_NN
@@ -49,7 +50,7 @@ class PointNNWrapper:
         feature_memory, label_memory = [], []
         
         with torch.no_grad():
-            for points, labels in train_loader:
+            for points, labels in tqdm(train_loader):
                 points = points.to(self.device).permute(0, 2, 1)  # [B, 3, N]
                 # 通过非参数编码器
                 point_features = self.point_nn(points)  # [B, C]
@@ -83,7 +84,7 @@ class PointNNWrapper:
         # 提取测试特征
         test_features, test_labels = [], []
         with torch.no_grad():
-            for points, labels in test_loader:
+            for points, labels in tqdm(test_loader):
                 points = points.to(self.device).permute(0, 2, 1)  # [B, 3, N]
                 point_features = self.point_nn(points)  # [B, C]
                 test_features.append(point_features)
