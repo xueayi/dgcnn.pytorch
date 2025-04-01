@@ -198,19 +198,33 @@ class DecNP(nn.Module):
         """
 
         points2 = points2.permute(0, 2, 1)
-        B, N, C = points1.shape
+        B, N, C = xyz1.shape
+        _, S, _ = xyz2.shape
 
-        # FPS
-        dists = square_distance(xyz1, xyz2)
-        dists, idx = dists.sort(dim=-1)
-        dists, idx = dists[:, :, :3], idx[:, :, :3]  # [B, N, 3]
+        if S == 1:
+            interpolated_points = points2.repeat(1, N, 1)
+        else:
+            dists = square_distance(xyz1, xyz2)
+            dists, idx = dists.sort(dim=-1)
+            dists, idx = dists[:, :, :self.de_neighbors], idx[:, :, :self.de_neighbors]  # [B, N, 3]
 
-        dist_recip = 1.0 / (dists + 1e-8)
-        norm = torch.sum(dist_recip, dim=2, keepdim=True)
-        weight = dist_recip / norm
-        interpolated_points = torch.sum(index_points(points2, idx) * weight.view(B, N, 3, 1), dim=2)
+            dist_recip = 1.0 / (dists + 1e-8)
+            norm = torch.sum(dist_recip, dim=2, keepdim=True)
+            weight = dist_recip / norm
+            weight = weight.view(B, N, self.de_neighbors, 1)
 
-        return interpolated_points
+            index_points(xyz1, idx)
+            interpolated_points = torch.sum(index_points(points2, idx) * weight, dim=2)
+
+        if points1 is not None:
+            points1 = points1.permute(0, 2, 1)
+            new_points = torch.cat([points1, interpolated_points], dim=-1)
+
+        else:
+            new_points = interpolated_points
+
+        new_points = new_points.permute(0, 2, 1)
+        return new_points
 
 
     def forward(self, xyz_list, x_list):
@@ -218,24 +232,20 @@ class DecNP(nn.Module):
         x_list.reverse()
 
         x = x_list[0]
-
-        # Multi-stage Hierarchy
         for i in range(self.num_stages):
-            # Propagation
-            x = self.propagate(xyz_list[i+1], xyz_list[i], x.permute(0, 2, 1), x_list[i])
-            x = x.permute(0, 2, 1)
-
+            # Propagate point features to neighbors
+            x = self.propagate(xyz_list[i+1], xyz_list[i], x_list[i+1], x)
         return x
 
 
 # Non-Parametric Network
 class Point_NN_Seg(nn.Module):
-    def __init__(self, input_points=1024, num_stages=4, embed_dim=72, k_neighbors=90, beta=1000, alpha=100):
+    def __init__(self, input_points=2048, num_stages=5, embed_dim=144, 
+                    k_neighbors=128, de_neighbors=6, beta=1000, alpha=100):
         super().__init__()
-        # Non-Parametric Encoder
+        # Non-Parametric Encoder and Decoder
         self.EncNP = EncNP(input_points, num_stages, embed_dim, k_neighbors, alpha, beta)
-        # Non-Parametric Decoder
-        self.DecNP = DecNP(num_stages, k_neighbors)
+        self.DecNP = DecNP(num_stages, de_neighbors)
 
 
     def forward(self, x):
@@ -245,6 +255,7 @@ class Point_NN_Seg(nn.Module):
 
         # Non-Parametric Encoder
         xyz_list, x_list = self.EncNP(xyz, x)
+
         # Non-Parametric Decoder
         x = self.DecNP(xyz_list, x_list)
         return x

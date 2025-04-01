@@ -189,6 +189,7 @@ class EncP(nn.Module):
     def forward(self, xyz, x):
 
         # Raw-point Embedding
+        # pdb.set_trace()
         x = self.raw_point_embed(x)
 
         # Multi-stage Hierarchy
@@ -207,19 +208,24 @@ class EncP(nn.Module):
 
 # Parametric Network for ModelNet40
 class Point_PN_mn40(nn.Module):
-    def __init__(self, input_points=1024, num_stages=4, embed_dim=72, k_neighbors=90, beta=1000, alpha=100):
+    def __init__(self, in_channels=3, class_num=40, input_points=1024, num_stages=4, embed_dim=36, k_neighbors=40, beta=100, alpha=1000, LGA_block=[2,1,1,1], dim_expansion=[2,2,2,1], type='mn40'):
         super().__init__()
         # Parametric Encoder
-        self.EncP = EncP(in_channels=3,
-                        input_points=input_points,
-                        num_stages=num_stages,
-                        embed_dim=embed_dim,
-                        k_neighbors=k_neighbors,
-                        alpha=alpha,
-                        beta=beta,
-                        LGA_block=[2, 2, 2, 2],
-                        dim_expansion=[2, 2, 2, 2],
-                        type='mn40')
+        self.EncP = EncP(in_channels, input_points, num_stages, embed_dim, k_neighbors, alpha, beta, LGA_block, dim_expansion, type)
+        self.out_channel = embed_dim
+        for i in dim_expansion:
+            self.out_channel *= i
+        self.classifier = nn.Sequential(
+            nn.Linear(self.out_channel, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(256, class_num)
+        )
 
 
     def forward(self, x):
@@ -229,31 +235,41 @@ class Point_PN_mn40(nn.Module):
 
         # Parametric Encoder
         x = self.EncP(xyz, x)
-        return x
 
+        # Classifier
+        x = self.classifier(x)
+        return x
+    
 
 # Parametric Network for ScanObjectNN
 class Point_PN_scan(nn.Module):
-    def __init__(self, input_points=1024, num_stages=4, embed_dim=72, k_neighbors=90, beta=1000, alpha=100):
+    def __init__(self, in_channels=4, class_num=15, input_points=1024, num_stages=4, embed_dim=36, k_neighbors=40, beta=100, alpha=1000, LGA_block=[2,1,1,1], dim_expansion=[2,2,2,1], type='scan'):
         super().__init__()
         # Parametric Encoder
-        self.EncP = EncP(in_channels=3,
-                        input_points=input_points,
-                        num_stages=num_stages,
-                        embed_dim=embed_dim,
-                        k_neighbors=k_neighbors,
-                        alpha=alpha,
-                        beta=beta,
-                        LGA_block=[2, 2, 2, 2],
-                        dim_expansion=[2, 2, 2, 2],
-                        type='scan')
+        self.EncP = EncP(in_channels, input_points, num_stages, embed_dim, k_neighbors, alpha, beta, LGA_block, dim_expansion, type)
+        self.out_channel = embed_dim
+        for i in dim_expansion:
+            self.out_channel *= i
+        self.classifier = nn.Sequential(
+            nn.Linear(self.out_channel, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(256, class_num)
+        )
 
 
-    def forward(self, x):
+    def forward(self, x, xyz):
         # xyz: point coordinates
         # x: point features
-        xyz = x.permute(0, 2, 1)
 
         # Parametric Encoder
         x = self.EncP(xyz, x)
+
+        # Classifier
+        x = self.classifier(x)
         return x

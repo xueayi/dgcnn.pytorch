@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 # 导入Point-NN相关模块
 from nn_models import Point_NN
+from util import cls_acc
 
 
 class PointNNWrapper:
@@ -105,8 +106,7 @@ class PointNNWrapper:
             logits = (-gamma * (1 - Sim)).exp() @ self.label_memory  # [num_test, num_classes]
             
             # 计算准确率
-            pred = logits.argmax(dim=1)
-            acc = (pred == test_labels).float().mean().item() * 100
+            acc = cls_acc(logits, test_labels)
             
             if acc > best_acc:
                 best_acc, best_gamma = acc, gamma
