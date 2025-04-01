@@ -29,8 +29,8 @@ class PointNNWrapper:
                                 num_stages=num_stages,
                                 embed_dim=embed_dim, 
                                 k_neighbors=k_neighbors,
-                                alpha=alpha, 
-                                beta=beta).to(self.device)
+                                beta=beta, 
+                                alpha=alpha).to(self.device)
         self.point_nn.eval()  # 设置为评估模式
         
         # 记忆库
