@@ -221,23 +221,66 @@ def test(args, io):
     model = nn.DataParallel(model)
     model.load_state_dict(torch.load(args.model_path))
     model = model.eval()
+    
+    # 初始化Point-NN集成
+    point_nn_wrapper = None
+    if args.use_point_nn:
+        from point_nn_utils import PointNNWrapper, ensemble_predictions
+        io.cprint(f"使用Point-NN集成，融合权重λ={args.lambda_weight}")
+        
+        # 初始化Point-NN
+        point_nn_wrapper = PointNNWrapper(
+            num_points=args.num_points,
+            num_stages=4,  # 默认值
+            embed_dim=72,  # 默认值
+            k_neighbors=90,  # 默认值
+            alpha=1000,  # 默认值
+            beta=100  # 默认值
+        )
+        
+        # 构建记忆库
+        train_loader = DataLoader(ModelNet40(partition='train', num_points=args.num_points),
+                                 batch_size=args.test_batch_size, shuffle=False, drop_last=False)
+        point_nn_wrapper.build_memory_bank(train_loader)
+        
+        # 寻找最佳gamma参数
+        point_nn_wrapper.find_best_gamma(test_loader)
+    
     test_acc = 0.0
     count = 0.0
     test_true = []
     test_pred = []
+    
     for data, label in test_loader:
-
         data, label = data.to(device), label.to(device).squeeze()
-        data = data.permute(0, 2, 1)
+        data = data.permute(0, 2, 1)  # [B, 3, N]
         batch_size = data.size()[0]
-        logits = model(data)
+        
+        # DGCNN预测
+        dgcnn_logits = model(data)
+        
+        if args.use_point_nn:
+            # Point-NN预测
+            point_nn_logits = point_nn_wrapper.predict(data)
+            
+            # 融合预测结果
+            logits = ensemble_predictions(
+                dgcnn_logits, 
+                point_nn_logits, 
+                lambda_weight=args.lambda_weight
+            )
+        else:
+            logits = dgcnn_logits
+        
         preds = logits.max(dim=1)[1]
         test_true.append(label.cpu().numpy())
         test_pred.append(preds.detach().cpu().numpy())
+    
     test_true = np.concatenate(test_true)
     test_pred = np.concatenate(test_pred)
     test_acc = metrics.accuracy_score(test_true, test_pred)
     avg_per_class_acc = metrics.balanced_accuracy_score(test_true, test_pred)
+    
     outstr = 'Test :: test acc: %.6f, test avg acc: %.6f'%(test_acc, avg_per_class_acc)
     io.cprint(outstr)
 
@@ -283,6 +326,10 @@ if __name__ == "__main__":
                         help='Num of nearest neighbors to use')
     parser.add_argument('--model_path', type=str, default='', metavar='N',
                         help='Pretrained model path')
+    parser.add_argument('--use_point_nn', type=bool, default=False,
+                        help='是否使用Point-NN进行预测融合')
+    parser.add_argument('--lambda_weight', type=float, default=0.5,
+                        help='融合权重λ，控制DGCNN的权重 (默认0.5)')
     args = parser.parse_args()
 
     _init_()
