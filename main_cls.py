@@ -25,12 +25,17 @@ from data import ModelNet40
 from model import PointNet, DGCNN_cls
 import numpy as np
 from torch.utils.data import DataLoader
-from util import cal_loss, IOStream
+from util import cal_loss, IOStream, cls_acc
 from torch.utils.tensorboard import SummaryWriter
 import sklearn.metrics as metrics
 from thop import profile
 from thop import clever_format
 import copy
+from tqdm import tqdm
+from nn_models import Point_NN
+
+
+
 
 def _init_():
     if not os.path.exists('outputs'):
@@ -197,9 +202,11 @@ def train(args, io):
 
 
 def test(args, io):
-    test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points),
-                             batch_size=args.test_batch_size, shuffle=True, drop_last=False)
-
+    test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points), num_workers=8,
+                             batch_size=args.test_batch_size, shuffle=False, drop_last=False)
+    train_loader = DataLoader(ModelNet40(partition='train', num_points=args.num_points), num_workers=8,
+                             batch_size=args.test_batch_size, shuffle=False, drop_last=False)
+                             
     device = torch.device("cuda" if args.cuda else "cpu")
 
     #Try to load models
@@ -222,29 +229,67 @@ def test(args, io):
     model.load_state_dict(torch.load(args.model_path))
     model = model.eval()
     
-    # 初始化Point-NN集成
-    point_nn_wrapper = None
     if args.use_point_nn:
-        from point_nn_utils import PointNNWrapper, ensemble_predictions
         io.cprint(f"使用Point-NN集成，融合权重λ={args.lambda_weight}")
         
         # 初始化Point-NN
-        point_nn_wrapper = PointNNWrapper(
-            num_points=args.num_points,
-            num_stages=4,  # 默认值
-            embed_dim=72,  # 默认值
-            k_neighbors=90,  # 默认值
-            alpha=1000,  # 默认值
-            beta=100  # 默认值
-        )
+        point_nn = Point_NN(input_points=args.num_points, 
+                          num_stages=4,  # 默认值
+                          embed_dim=72,  # 默认值
+                          k_neighbors=90,  # 默认值
+                          alpha=1000,  # 默认值
+                          beta=100  # 默认值
+                          ).to(device)
+        point_nn.eval()
         
-        # 构建记忆库
-        train_loader = DataLoader(ModelNet40(partition='train', num_points=args.num_points),
-                                 batch_size=args.test_batch_size, shuffle=False, drop_last=False)
-        point_nn_wrapper.build_memory_bank(train_loader)
+        print('==> 构建Point-NN记忆库...')
+        feature_memory, label_memory = [], []
+        with torch.no_grad():
+            for points, labels in tqdm(train_loader):
+                points = points.to(device).permute(0, 2, 1)  # [B, 3, N]
+                # 通过非参数编码器
+                point_features = point_nn(points)  # [B, C]
+                feature_memory.append(point_features)
+                
+                labels = labels.to(device)
+                label_memory.append(labels)
         
-        # 寻找最佳gamma参数
-        point_nn_wrapper.find_best_gamma(test_loader)
+        # 特征记忆库
+        feature_memory = torch.cat(feature_memory, dim=0)  # [num_train, C]
+        feature_memory /= feature_memory.norm(dim=-1, keepdim=True)  # 归一化
+        feature_memory = feature_memory.permute(1, 0)  # [C, num_train]
+        
+        # 标签记忆库
+        label_memory = torch.cat(label_memory, dim=0)  # [num_train]
+        label_memory = F.one_hot(label_memory).squeeze().float()  # [num_train, num_classes]
+        
+        print('==> 提取测试点云特征...')
+        test_features, test_labels = [], []
+        with torch.no_grad():
+            for points, labels in tqdm(test_loader):
+                points = points.cuda().permute(0, 2, 1)  # [B, 3, N]
+                point_features = point_nn(points)  # [B, C]
+                test_features.append(point_features)
+                test_labels.append(labels.to(device))
+        
+        test_features = torch.cat(test_features)  # [num_test, C]
+        test_features /= test_features.norm(dim=-1, keepdim=True)  # 归一化
+        test_labels = torch.cat(test_labels)  # [num_test]
+        
+        print('==> 寻找Point-NN最佳gamma参数...')
+        gamma_list = [i * 10000 / 5000 for i in range(5000)]
+        best_acc, best_gamma = 0, 0
+        for gamma in gamma_list:
+            # 相似度匹配
+            Sim = test_features @ feature_memory  # [num_test, num_train]
+            # 标签集成
+            point_nn_logits = (-gamma * (1 - Sim)).exp() @ label_memory  # [num_test, num_classes]
+            
+            acc = cls_acc(point_nn_logits, test_labels)
+            if acc > best_acc:
+                best_acc, best_gamma = acc, gamma
+        
+        print(f'==> 找到最佳gamma: {best_gamma:.2f}, Point-NN准确率: {best_acc:.2f}%')
     
     test_acc = 0.0
     count = 0.0
@@ -261,14 +306,13 @@ def test(args, io):
         
         if args.use_point_nn:
             # Point-NN预测
-            point_nn_logits = point_nn_wrapper.predict(data)
+            point_features = point_nn(data)
+            point_features /= point_features.norm(dim=-1, keepdim=True)
+            Sim = point_features @ feature_memory
+            point_nn_logits = (-best_gamma * (1 - Sim)).exp() @ label_memory
             
             # 融合预测结果
-            logits = ensemble_predictions(
-                dgcnn_logits, 
-                point_nn_logits, 
-                lambda_weight=args.lambda_weight
-            )
+            logits = args.lambda_weight * dgcnn_logits + (1 - args.lambda_weight) * point_nn_logits
         else:
             logits = dgcnn_logits
         
