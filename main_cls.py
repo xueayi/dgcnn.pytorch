@@ -295,30 +295,31 @@ def test(args, io):
     count = 0.0
     test_true = []
     test_pred = []
-    
-    for data, label in test_loader:
-        data, label = data.to(device), label.to(device).squeeze()
-        data = data.permute(0, 2, 1)  # [B, 3, N]
-        batch_size = data.size()[0]
-        
-        # DGCNN预测
-        dgcnn_logits = model(data)
-        
-        if args.use_point_nn:
-            # Point-NN预测
-            point_features = point_nn(data)
-            point_features /= point_features.norm(dim=-1, keepdim=True)
-            Sim = point_features @ feature_memory
-            point_nn_logits = (-best_gamma * (1 - Sim)).exp() @ label_memory
-            
-            # 融合预测结果
-            logits = args.lambda_weight * dgcnn_logits + (1 - args.lambda_weight) * point_nn_logits
-        else:
-            logits = dgcnn_logits
-        
-        preds = logits.max(dim=1)[1]
-        test_true.append(label.cpu().numpy())
-        test_pred.append(preds.detach().cpu().numpy())
+
+    with torch.no_grad():
+        for data, label in test_loader:
+            data, label = data.to(device), label.to(device).squeeze()
+            data = data.permute(0, 2, 1)  # [B, 3, N]
+            batch_size = data.size()[0]
+
+            # DGCNN预测
+            dgcnn_logits = model(data)
+
+            if args.use_point_nn:
+                # Point-NN预测
+                point_features = point_nn(data)
+                point_features /= point_features.norm(dim=-1, keepdim=True)
+                Sim = point_features @ feature_memory
+                point_nn_logits = (-best_gamma * (1 - Sim)).exp() @ label_memory
+
+                # 融合预测结果
+                logits = args.lambda_weight * dgcnn_logits + (1 - args.lambda_weight) * point_nn_logits
+            else:
+                logits = dgcnn_logits
+
+            preds = logits.max(dim=1)[1]
+            test_true.append(label.cpu().numpy())
+            test_pred.append(preds.detach().cpu().numpy())
     
     test_true = np.concatenate(test_true)
     test_pred = np.concatenate(test_pred)
