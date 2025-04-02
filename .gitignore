@@ -5,3 +5,4 @@ __pycache__/
 data/
 nn_models/
 outputs/
+/docs
