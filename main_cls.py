@@ -133,7 +133,7 @@ def train(args, io):
         # 记录训练指标
         writer.add_scalar('Train/Loss', train_loss/count, epoch)
         writer.add_scalar('Train/Acc', train_acc, epoch)
-        writer.add_scalar('Train/Balanced_Acc', train_balanced_acc / count, epoch)
+        writer.add_scalar('Train/Balanced_Acc', train_balanced_acc, epoch)
         writer.add_scalar('Train/LR', opt.param_groups[0]['lr'], epoch)
         
         # 记录GPU内存使用情况
